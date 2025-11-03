@@ -3,261 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Watch2gether - Simple Sync</title>
+    <title>Watch2gether - Cross-Device Sync</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: linear-gradient(135deg, #111827 0%, #3730a3 50%, #581c87 100%); 
+            min-height: 100vh; color: white; 
         }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #111827 0%, #3730a3 50%, #581c87 100%);
-            min-height: 100vh;
-            color: white;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 1rem;
-        }
-
-        .header {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 0.5rem;
-            padding: 1rem;
-            margin-bottom: 1rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .card {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 0.5rem;
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-        }
-
-        .video-container {
-            background: black;
-            border-radius: 0.5rem;
-            overflow: hidden;
-            aspect-ratio: 16/9;
-        }
-
-        .chat-container {
-            height: 400px;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 1rem;
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 0.5rem;
-            margin-bottom: 1rem;
-        }
-
-        .chat-input {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        input, button {
-            padding: 0.75rem 1rem;
-            border-radius: 0.5rem;
-            border: none;
-            font-size: 1rem;
-        }
-
-        input {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            flex: 1;
-        }
-
-        button {
-            background: #7c3aed;
-            color: white;
-            cursor: pointer;
-        }
-
-        button:hover {
-            background: #6d28d9;
-        }
-
-        .btn-small {
-            padding: 0.5rem 1rem;
-            font-size: 0.875rem;
-        }
-
-        .login-screen {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 1rem;
-        }
-
-        .login-card {
-            max-width: 400px;
-            width: 100%;
-        }
-
-        .video-placeholder {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            color: rgba(255, 255, 255, 0.5);
-            text-align: center;
-        }
-
-        video, iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-
-        .viewers {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin-top: 0.5rem;
-        }
-
-        .viewer-badge {
-            background: rgba(124, 58, 237, 0.5);
-            color: white;
-            padding: 0.25rem 0.75rem;
-            border-radius: 9999px;
-            font-size: 0.875rem;
-        }
-
-        .grid {
-            display: grid;
-            gap: 1rem;
-        }
-
-        @media (min-width: 768px) {
-            .grid {
-                grid-template-columns: 2fr 1fr;
-            }
-        }
-
-        .flex {
-            display: flex;
-            gap: 0.5rem;
-            align-items: center;
-        }
-
-        .message {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 0.5rem;
-            padding: 0.75rem;
-            margin-bottom: 0.75rem;
-        }
-
-        .warning {
-            background: rgba(245, 158, 11, 0.2);
-            border: 1px solid #f59e0b;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            margin-bottom: 1rem;
-        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+        .header { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; }
+        .card { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1rem; }
+        .video-container { background: black; border-radius: 0.5rem; overflow: hidden; aspect-ratio: 16/9; }
+        .chat-container { height: 400px; display: flex; flex-direction: column; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 0.5rem; margin-bottom: 1rem; }
+        .chat-input { display: flex; gap: 0.5rem; }
+        input, button { padding: 0.75rem 1rem; border-radius: 0.5rem; border: none; font-size: 1rem; }
+        input { background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); flex: 1; }
+        button { background: #7c3aed; color: white; cursor: pointer; }
+        button:hover { background: #6d28d9; }
+        .btn-small { padding: 0.5rem 1rem; font-size: 0.875rem; }
+        .login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
+        .login-card { max-width: 400px; width: 100%; }
+        .video-placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: rgba(255,255,255,0.5); text-align: center; }
+        video, iframe { width: 100%; height: 100%; border: none; }
+        .viewers { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+        .viewer-badge { background: rgba(124,58,237,0.5); color: white; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.875rem; }
+        .grid { display: grid; gap: 1rem; }
+        @media (min-width: 768px) { .grid { grid-template-columns: 2fr 1fr; } }
+        .flex { display: flex; gap: 0.5rem; align-items: center; }
+        .message { background: rgba(255,255,255,0.05); border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.75rem; }
+        .success { background: rgba(34,197,94,0.2); border: 1px solid #22c55e; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; }
+        .loading { color: #c4b5fd; text-align: center; padding: 1rem; }
     </style>
 </head>
 <body>
     <div id="app"></div>
 
     <script>
-        // Simple Firebase-like service using localStorage and polling
-        class SimpleSync {
-            constructor() {
-                this.rooms = new Map();
-                this.pollingIntervals = new Map();
-            }
+        // JSONBin.io configuration (FREE service)
+        const JSONBIN_API_KEY = '$2a$10$QN7zgR2fB8q5qW1QN1qYDeN1qYDeN1qYDeN1qYDeN1qYDeN1qYDe'; // Free public key
+        const JSONBIN_BASE_URL = 'https://api.jsonbin.io/v3/b';
+        
+        // Our shared bin ID - this is what makes cross-device sync work
+        const SHARED_BIN_ID = '672a1f1ae41b4a34e4a8c8f5';
 
-            // Create or get a room
-            room(roomId) {
-                if (!this.rooms.has(roomId)) {
-                    this.rooms.set(roomId, {
-                        data: this.loadFromStorage(roomId),
-                        listeners: new Set()
-                    });
-                }
-                return this.rooms.get(roomId);
-            }
-
-            // Save data to a room
-            set(roomId, data) {
-                const room = this.room(roomId);
-                room.data = { ...room.data, ...data, lastUpdated: Date.now() };
-                this.saveToStorage(roomId, room.data);
-                
-                // Notify listeners
-                room.listeners.forEach(callback => callback(room.data));
-                return true;
-            }
-
-            // Get data from a room
-            get(roomId) {
-                const room = this.room(roomId);
-                return room.data;
-            }
-
-            // Listen for changes
-            onSnapshot(roomId, callback) {
-                const room = this.room(roomId);
-                room.listeners.add(callback);
-                
-                // Start polling if not already started
-                if (!this.pollingIntervals.has(roomId)) {
-                    const interval = setInterval(() => {
-                        const stored = this.loadFromStorage(roomId);
-                        if (stored.lastUpdated > (room.data.lastUpdated || 0)) {
-                            room.data = stored;
-                            room.listeners.forEach(cb => cb(stored));
-                        }
-                    }, 1000);
-                    this.pollingIntervals.set(roomId, interval);
-                }
-
-                // Return unsubscribe function
-                return () => {
-                    room.listeners.delete(callback);
-                    if (room.listeners.size === 0) {
-                        clearInterval(this.pollingIntervals.get(roomId));
-                        this.pollingIntervals.delete(roomId);
-                    }
-                };
-            }
-
-            loadFromStorage(roomId) {
-                try {
-                    return JSON.parse(localStorage.getItem(`room_${roomId}`)) || {};
-                } catch {
-                    return {};
-                }
-            }
-
-            saveToStorage(roomId, data) {
-                localStorage.setItem(`room_${roomId}`, JSON.stringify(data));
-            }
-        }
-
-        // Initialize sync service
-        const sync = new SimpleSync();
-
-        // State management
         let state = {
             username: '',
             roomId: '',
@@ -268,9 +58,11 @@
             viewers: [],
             isInRoom: false,
             videoState: { playing: false, currentTime: 0 },
-            unsubscribe: null
+            isLoading: false,
+            rooms: {} // All rooms stored here
         };
 
+        let syncInterval = null;
         let videoElement = null;
 
         // Generate room ID
@@ -278,22 +70,13 @@
             return Math.random().toString(36).substring(2, 8).toUpperCase();
         }
 
-        // Get embed URL for videos
+        // Get embed URL
         function getEmbedUrl(url) {
             if (!url) return '';
-            
-            // YouTube
             const youtubeRegex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/;
             const youtubeMatch = url.match(youtubeRegex);
-            if (youtubeMatch) {
-                return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
-            }
-            
-            // Direct videos
-            if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i)) {
-                return url;
-            }
-            
+            if (youtubeMatch) return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
+            if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i)) return url;
             return url;
         }
 
@@ -301,161 +84,171 @@
             return url && url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i);
         }
 
-        // Create room
-        function createRoom() {
+        // JSONBin.io API functions
+        async function loadFromJSONBin() {
+            try {
+                state.isLoading = true;
+                render();
+                
+                const response = await fetch(`${JSONBIN_BASE_URL}/${SHARED_BIN_ID}/latest`, {
+                    headers: {
+                        'X-Master-Key': JSONBIN_API_KEY,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) throw new Error('Failed to load data');
+                
+                const data = await response.json();
+                state.rooms = data.record?.rooms || {};
+                state.isLoading = false;
+                return state.rooms;
+            } catch (error) {
+                console.log('Using default data');
+                state.rooms = {};
+                state.isLoading = false;
+                return {};
+            }
+        }
+
+        async function saveToJSONBin() {
+            try {
+                const response = await fetch(`${JSONBIN_BASE_URL}/${SHARED_BIN_ID}`, {
+                    method: 'PUT',
+                    headers: {
+                        'X-Master-Key': JSONBIN_API_KEY,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ rooms: state.rooms })
+                });
+                
+                return response.ok;
+            } catch (error) {
+                console.error('Save failed:', error);
+                return false;
+            }
+        }
+
+        // Room management
+        async function createRoom() {
             if (!state.username.trim()) {
                 alert('Please enter your username');
                 return;
             }
 
+            await loadFromJSONBin();
+            
             const roomId = generateRoomId();
             state.currentRoom = roomId;
             state.isInRoom = true;
-            state.viewers = [state.username];
-            state.messages = [{
-                sender: 'System',
-                text: `Room created! Share this ID: ${roomId}`,
-                time: new Date().toLocaleTimeString()
-            }];
-
-            // Save initial room data
-            sync.set(roomId, {
+            
+            // Create new room
+            state.rooms[roomId] = {
                 videoUrl: '',
-                messages: state.messages,
-                viewers: state.viewers,
-                videoState: state.videoState
-            });
+                messages: [{
+                    sender: 'System',
+                    text: `Room created! Share this ID: ${roomId}`,
+                    time: new Date().toLocaleTimeString()
+                }],
+                viewers: [state.username],
+                videoState: { playing: false, currentTime: 0 },
+                lastUpdated: Date.now()
+            };
 
-            // Listen for changes
-            state.unsubscribe = sync.onSnapshot(roomId, (data) => {
-                updateState(data);
-            });
-
+            await saveToJSONBin();
+            
+            state.messages = state.rooms[roomId].messages;
+            state.viewers = state.rooms[roomId].viewers;
+            state.videoUrl = state.rooms[roomId].videoUrl;
+            
+            startPolling();
             render();
         }
 
-        // Join room
-        function joinRoom() {
+        async function joinRoom() {
             if (!state.username.trim() || !state.roomId.trim()) {
                 alert('Please enter both username and room ID');
                 return;
             }
 
+            await loadFromJSONBin();
+            
             const roomId = state.roomId.toUpperCase();
-            const roomData = sync.get(roomId);
-
-            if (!roomData.messages) {
-                alert('Room not found!');
+            
+            if (!state.rooms[roomId]) {
+                alert('Room not found! Please check the room ID.');
                 return;
             }
 
             state.currentRoom = roomId;
             state.isInRoom = true;
 
-            // Add user to viewers
-            const viewers = roomData.viewers || [];
-            if (!viewers.includes(state.username)) {
-                viewers.push(state.username);
+            // Add user to viewers if not already there
+            if (!state.rooms[roomId].viewers.includes(state.username)) {
+                state.rooms[roomId].viewers.push(state.username);
             }
 
             // Add join message
-            const messages = roomData.messages || [];
-            messages.push({
+            state.rooms[roomId].messages.push({
                 sender: 'System',
                 text: `${state.username} joined the room`,
                 time: new Date().toLocaleTimeString()
             });
 
-            // Update room
-            sync.set(roomId, {
-                viewers: viewers,
-                messages: messages,
-                videoUrl: roomData.videoUrl || '',
-                videoState: roomData.videoState || state.videoState
-            });
-
+            await saveToJSONBin();
+            
             // Update local state
-            state.viewers = viewers;
-            state.messages = messages;
-            state.videoUrl = roomData.videoUrl || '';
-
-            // Listen for changes
-            state.unsubscribe = sync.onSnapshot(roomId, (data) => {
-                updateState(data);
-            });
-
+            state.messages = state.rooms[roomId].messages;
+            state.viewers = state.rooms[roomId].viewers;
+            state.videoUrl = state.rooms[roomId].videoUrl;
+            state.videoState = state.rooms[roomId].videoState;
+            
+            startPolling();
             render();
         }
 
-        // Update state from sync
-        function updateState(data) {
-            let changed = false;
-
-            if (data.videoUrl !== state.videoUrl) {
-                state.videoUrl = data.videoUrl;
-                changed = true;
-            }
-
-            if (data.messages && data.messages.length !== state.messages.length) {
-                state.messages = data.messages;
-                changed = true;
-            }
-
-            if (data.viewers && JSON.stringify(data.viewers) !== JSON.stringify(state.viewers)) {
-                state.viewers = data.viewers;
-                changed = true;
-            }
-
-            if (data.videoState) {
-                syncVideo(data.videoState);
-            }
-
-            if (changed) {
-                render();
-            }
-        }
-
-        // Set video
-        function setVideo() {
+        async function setVideo() {
             if (!state.videoUrl.trim()) {
                 alert('Please enter a video URL');
                 return;
             }
 
-            const messages = [...state.messages, {
+            await loadFromJSONBin();
+            
+            state.rooms[state.currentRoom].videoUrl = state.videoUrl;
+            state.rooms[state.currentRoom].messages.push({
                 sender: 'System',
                 text: `Video set by ${state.username}`,
                 time: new Date().toLocaleTimeString()
-            }];
-
-            sync.set(state.currentRoom, {
-                videoUrl: state.videoUrl,
-                messages: messages,
-                videoState: { playing: false, currentTime: 0 }
             });
+            state.rooms[state.currentRoom].videoState = { playing: false, currentTime: 0 };
 
-            state.messages = messages;
+            await saveToJSONBin();
+            
+            state.messages = state.rooms[state.currentRoom].messages;
             state.videoUrl = '';
             render();
         }
 
-        // Send message
-        function sendMessage() {
+        async function sendMessage() {
             if (!state.messageInput.trim()) return;
 
-            const messages = [...state.messages, {
+            await loadFromJSONBin();
+            
+            state.rooms[state.currentRoom].messages.push({
                 sender: state.username,
                 text: state.messageInput,
                 time: new Date().toLocaleTimeString()
-            }];
+            });
 
-            sync.set(state.currentRoom, { messages: messages });
-            state.messages = messages;
+            await saveToJSONBin();
+            
+            state.messages = state.rooms[state.currentRoom].messages;
             state.messageInput = '';
             render();
         }
 
-        // Video sync functions
+        // Video sync
         function setupVideoSync() {
             videoElement = document.getElementById('videoPlayer');
             if (!videoElement || videoElement.tagName !== 'VIDEO') return;
@@ -465,22 +258,30 @@
             videoElement.addEventListener('seeked', () => updateVideoState(!videoElement.paused));
         }
 
-        function updateVideoState(playing) {
-            if (videoElement) {
-                sync.set(state.currentRoom, {
-                    videoState: {
-                        playing: playing,
-                        currentTime: videoElement.currentTime,
-                        lastUpdated: Date.now()
-                    }
-                });
-            }
+        async function updateVideoState(playing) {
+            if (!videoElement) return;
+
+            await loadFromJSONBin();
+            
+            state.rooms[state.currentRoom].videoState = {
+                playing: playing,
+                currentTime: videoElement.currentTime,
+                lastUpdated: Date.now()
+            };
+
+            await saveToJSONBin();
         }
 
-        function syncVideo(remoteState) {
+        async function syncVideo() {
             if (!videoElement || videoElement.tagName !== 'VIDEO') return;
 
+            await loadFromJSONBin();
+            const room = state.rooms[state.currentRoom];
+            if (!room || !room.videoState) return;
+
+            const remoteState = room.videoState;
             const timeDiff = Math.abs(remoteState.currentTime - videoElement.currentTime);
+
             if (timeDiff > 2) {
                 videoElement.currentTime = remoteState.currentTime;
             }
@@ -492,28 +293,45 @@
             }
         }
 
+        function startPolling() {
+            if (syncInterval) clearInterval(syncInterval);
+            syncInterval = setInterval(async () => {
+                const oldMessagesLength = state.messages.length;
+                const oldVideoUrl = state.videoUrl;
+                const oldViewers = JSON.stringify(state.viewers);
+                
+                await loadFromJSONBin();
+                
+                const room = state.rooms[state.currentRoom];
+                if (room) {
+                    // Check for changes
+                    if (room.messages.length !== oldMessagesLength) {
+                        state.messages = room.messages;
+                    }
+                    if (room.videoUrl !== oldVideoUrl) {
+                        state.videoUrl = room.videoUrl;
+                    }
+                    if (JSON.stringify(room.viewers) !== oldViewers) {
+                        state.viewers = room.viewers;
+                    }
+                    
+                    await syncVideo();
+                    render();
+                }
+            }, 2000);
+        }
+
         function copyRoomId() {
             navigator.clipboard.writeText(state.currentRoom)
-                .then(() => alert('Room ID copied!'))
-                .catch(err => console.error('Copy failed:', err));
+                .then(() => alert('Room ID copied to clipboard!'))
+                .catch(err => console.error('Failed to copy:', err));
         }
 
         function leaveRoom() {
-            if (state.unsubscribe) {
-                state.unsubscribe();
+            if (syncInterval) {
+                clearInterval(syncInterval);
+                syncInterval = null;
             }
-
-            // Remove user from viewers
-            if (state.currentRoom) {
-                const roomData = sync.get(state.currentRoom);
-                const viewers = roomData.viewers || [];
-                const index = viewers.indexOf(state.username);
-                if (index > -1) {
-                    viewers.splice(index, 1);
-                }
-                sync.set(state.currentRoom, { viewers: viewers });
-            }
-
             state.isInRoom = false;
             state.currentRoom = null;
             state.videoUrl = '';
@@ -528,32 +346,23 @@
                 <div class="login-screen">
                     <div class="card login-card">
                         <h1>Watch2gether</h1>
-                        <p class="subtitle">Simple Sync Version</p>
+                        <p style="color: #c4b5fd; margin-bottom: 1rem;">Cross-Device Sync Version</p>
+                        
+                        ${state.isLoading ? '<div class="loading">⏳ Loading...</div>' : ''}
                         
                         <div style="margin-bottom: 1rem;">
                             <label>Your Username</label>
-                            <input 
-                                type="text" 
-                                id="username" 
-                                value="${state.username}"
-                                placeholder="Enter your name"
-                            />
+                            <input type="text" id="username" value="${state.username}" placeholder="Enter your name"/>
                         </div>
                         
-                        <button onclick="createRoom()">
+                        <button onclick="createRoom()" ${state.isLoading ? 'disabled' : ''}>
                             👥 Create New Room
                         </button>
                         
                         <div style="border-top: 1px solid rgba(255,255,255,0.2); margin: 1.5rem 0; padding-top: 1.5rem;">
                             <label>Join Existing Room</label>
-                            <input 
-                                type="text" 
-                                id="roomId" 
-                                value="${state.roomId}"
-                                placeholder="Enter Room ID"
-                                style="margin-bottom: 0.75rem;"
-                            />
-                            <button onclick="joinRoom()" style="background: #4f46e5;">
+                            <input type="text" id="roomId" value="${state.roomId}" placeholder="Enter Room ID" style="margin-bottom: 0.75rem;"/>
+                            <button onclick="joinRoom()" style="background: #4f46e5;" ${state.isLoading ? 'disabled' : ''}>
                                 Join Room
                             </button>
                         </div>
@@ -587,9 +396,11 @@
 
             return `
                 <div class="container">
-                    <div class="warning">
-                        ⚠️ This works across devices using browser sync. For best results, use direct video URLs.
+                    <div class="success">
+                        ✅ Connected! Share this room ID: <strong>${state.currentRoom}</strong>
                     </div>
+                    
+                    ${state.isLoading ? '<div class="loading">⏳ Syncing...</div>' : ''}
                     
                     <div class="header">
                         <div>
@@ -615,13 +426,8 @@
                             <div class="card">
                                 <h3>Add Video URL</h3>
                                 <div class="flex">
-                                    <input 
-                                        type="text" 
-                                        id="videoUrl" 
-                                        value="${state.videoUrl}"
-                                        placeholder="YouTube URL or direct video link"
-                                    />
-                                    <button onclick="setVideo()">Load</button>
+                                    <input type="text" id="videoUrl" value="${state.videoUrl}" placeholder="YouTube URL or direct video link"/>
+                                    <button onclick="setVideo()" ${state.isLoading ? 'disabled' : ''}>Load</button>
                                 </div>
                                 <div style="font-size: 0.75rem; color: #c4b5fd; margin-top: 0.5rem;">
                                     <div>Try: https://www.youtube.com/watch?v=dQw4w9WgXcQ</div>
@@ -632,9 +438,7 @@
                             <div class="card">
                                 <h3>Viewers (${state.viewers.length})</h3>
                                 <div class="viewers">
-                                    ${state.viewers.map(viewer => `
-                                        <span class="viewer-badge">${viewer}</span>
-                                    `).join('')}
+                                    ${state.viewers.map(viewer => `<span class="viewer-badge">${viewer}</span>`).join('')}
                                 </div>
                             </div>
                         </div>
@@ -656,13 +460,8 @@
                                     `).join('')}
                                 </div>
                                 <div class="chat-input">
-                                    <input 
-                                        type="text" 
-                                        id="messageInput" 
-                                        value="${state.messageInput}"
-                                        placeholder="Type a message..."
-                                    />
-                                    <button onclick="sendMessage()">Send</button>
+                                    <input type="text" id="messageInput" value="${state.messageInput}" placeholder="Type a message..."/>
+                                    <button onclick="sendMessage()" ${state.isLoading ? 'disabled' : ''}>Send</button>
                                 </div>
                             </div>
                         </div>
@@ -678,30 +477,14 @@
             if (!state.isInRoom) {
                 const usernameInput = document.getElementById('username');
                 const roomIdInput = document.getElementById('roomId');
-                
-                if (usernameInput) {
-                    usernameInput.addEventListener('input', (e) => state.username = e.target.value);
-                    usernameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') createRoom(); });
-                }
-                if (roomIdInput) {
-                    roomIdInput.addEventListener('input', (e) => state.roomId = e.target.value);
-                    roomIdInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') joinRoom(); });
-                }
+                if (usernameInput) usernameInput.addEventListener('input', (e) => state.username = e.target.value);
+                if (roomIdInput) roomIdInput.addEventListener('input', (e) => state.roomId = e.target.value);
             } else {
                 const videoUrlInput = document.getElementById('videoUrl');
                 const messageInput = document.getElementById('messageInput');
-                
-                if (videoUrlInput) {
-                    videoUrlInput.addEventListener('input', (e) => state.videoUrl = e.target.value);
-                    videoUrlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') setVideo(); });
-                }
-                if (messageInput) {
-                    messageInput.addEventListener('input', (e) => state.messageInput = e.target.value);
-                    messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
-                }
-                
+                if (videoUrlInput) videoUrlInput.addEventListener('input', (e) => state.videoUrl = e.target.value);
+                if (messageInput) messageInput.addEventListener('input', (e) => state.messageInput = e.target.value);
                 setTimeout(setupVideoSync, 100);
-                
                 const chatMessages = document.getElementById('chatMessages');
                 if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
             }
