@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Watch2gether - Real-time Sync</title>
+    <title>Watch2gether - Simple Sync</title>
     <style>
         * {
             margin: 0;
@@ -13,9 +13,9 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            overflow-x: hidden;
             background: linear-gradient(135deg, #111827 0%, #3730a3 50%, #581c87 100%);
             min-height: 100vh;
+            color: white;
         }
 
         .container {
@@ -33,7 +33,6 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
         .card {
@@ -41,7 +40,6 @@
             backdrop-filter: blur(10px);
             border-radius: 0.5rem;
             padding: 1.5rem;
-            border: 1px solid rgba(255, 255, 255, 0.2);
             margin-bottom: 1rem;
         }
 
@@ -50,7 +48,6 @@
             border-radius: 0.5rem;
             overflow: hidden;
             aspect-ratio: 16/9;
-            position: relative;
         }
 
         .chat-container {
@@ -73,20 +70,6 @@
             gap: 0.5rem;
         }
 
-        h1, h2, h3 {
-            color: white;
-        }
-
-        h1 {
-            font-size: 2rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .subtitle {
-            color: #c4b5fd;
-            margin-bottom: 1rem;
-        }
-
         input, button {
             padding: 0.75rem 1rem;
             border-radius: 0.5rem;
@@ -101,27 +84,14 @@
             flex: 1;
         }
 
-        input::placeholder {
-            color: rgba(255, 255, 255, 0.5);
-        }
-
         button {
             background: #7c3aed;
             color: white;
             cursor: pointer;
-            transition: background 0.2s;
         }
 
         button:hover {
             background: #6d28d9;
-        }
-
-        .btn-secondary {
-            background: #4f46e5;
-        }
-
-        .btn-secondary:hover {
-            background: #4338ca;
         }
 
         .btn-small {
@@ -140,54 +110,6 @@
         .login-card {
             max-width: 400px;
             width: 100%;
-        }
-
-        .form-group {
-            margin-bottom: 1rem;
-        }
-
-        label {
-            display: block;
-            color: white;
-            margin-bottom: 0.5rem;
-            font-weight: 500;
-        }
-
-        .divider {
-            border-top: 1px solid rgba(255, 255, 255, 0.2);
-            margin: 1.5rem 0;
-            padding-top: 1.5rem;
-        }
-
-        .message {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 0.5rem;
-            padding: 0.75rem;
-            margin-bottom: 0.75rem;
-        }
-
-        .message-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 0.25rem;
-        }
-
-        .message-sender {
-            font-weight: bold;
-            color: #c4b5fd;
-        }
-
-        .message-sender.system {
-            color: #fcd34d;
-        }
-
-        .message-time {
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 0.75rem;
-        }
-
-        .message-text {
-            color: white;
         }
 
         .video-placeholder {
@@ -237,31 +159,19 @@
             align-items: center;
         }
 
-        .url-examples {
-            font-size: 0.75rem;
-            color: #c4b5fd;
-            margin-top: 0.5rem;
+        .message {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            margin-bottom: 0.75rem;
         }
 
-        .sync-status {
-            font-size: 0.75rem;
-            color: #10b981;
-            margin-top: 0.5rem;
-        }
-
-        .offline-warning {
+        .warning {
             background: rgba(245, 158, 11, 0.2);
             border: 1px solid #f59e0b;
-            color: white;
-            padding: 0.5rem;
+            padding: 1rem;
             border-radius: 0.5rem;
             margin-bottom: 1rem;
-        }
-
-        .loading {
-            color: #c4b5fd;
-            text-align: center;
-            padding: 1rem;
         }
     </style>
 </head>
@@ -269,6 +179,84 @@
     <div id="app"></div>
 
     <script>
+        // Simple Firebase-like service using localStorage and polling
+        class SimpleSync {
+            constructor() {
+                this.rooms = new Map();
+                this.pollingIntervals = new Map();
+            }
+
+            // Create or get a room
+            room(roomId) {
+                if (!this.rooms.has(roomId)) {
+                    this.rooms.set(roomId, {
+                        data: this.loadFromStorage(roomId),
+                        listeners: new Set()
+                    });
+                }
+                return this.rooms.get(roomId);
+            }
+
+            // Save data to a room
+            set(roomId, data) {
+                const room = this.room(roomId);
+                room.data = { ...room.data, ...data, lastUpdated: Date.now() };
+                this.saveToStorage(roomId, room.data);
+                
+                // Notify listeners
+                room.listeners.forEach(callback => callback(room.data));
+                return true;
+            }
+
+            // Get data from a room
+            get(roomId) {
+                const room = this.room(roomId);
+                return room.data;
+            }
+
+            // Listen for changes
+            onSnapshot(roomId, callback) {
+                const room = this.room(roomId);
+                room.listeners.add(callback);
+                
+                // Start polling if not already started
+                if (!this.pollingIntervals.has(roomId)) {
+                    const interval = setInterval(() => {
+                        const stored = this.loadFromStorage(roomId);
+                        if (stored.lastUpdated > (room.data.lastUpdated || 0)) {
+                            room.data = stored;
+                            room.listeners.forEach(cb => cb(stored));
+                        }
+                    }, 1000);
+                    this.pollingIntervals.set(roomId, interval);
+                }
+
+                // Return unsubscribe function
+                return () => {
+                    room.listeners.delete(callback);
+                    if (room.listeners.size === 0) {
+                        clearInterval(this.pollingIntervals.get(roomId));
+                        this.pollingIntervals.delete(roomId);
+                    }
+                };
+            }
+
+            loadFromStorage(roomId) {
+                try {
+                    return JSON.parse(localStorage.getItem(`room_${roomId}`)) || {};
+                } catch {
+                    return {};
+                }
+            }
+
+            saveToStorage(roomId, data) {
+                localStorage.setItem(`room_${roomId}`, JSON.stringify(data));
+            }
+        }
+
+        // Initialize sync service
+        const sync = new SimpleSync();
+
         // State management
         let state = {
             username: '',
@@ -279,103 +267,42 @@
             messageInput: '',
             viewers: [],
             isInRoom: false,
-            isHost: false,
-            videoState: { playing: false, currentTime: 0, lastUpdated: 0, source: '' },
-            isSyncing: false,
-            isOnline: true,
-            isLoading: false
+            videoState: { playing: false, currentTime: 0 },
+            unsubscribe: null
         };
 
-        let syncInterval = null;
         let videoElement = null;
-        const API_BASE = 'https://organization-find.pockethost.io';
 
         // Generate room ID
         function generateRoomId() {
             return Math.random().toString(36).substring(2, 8).toUpperCase();
         }
 
-        // Get embed URL for YouTube videos
+        // Get embed URL for videos
         function getEmbedUrl(url) {
             if (!url) return '';
             
-            // YouTube handling
+            // YouTube
             const youtubeRegex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/;
             const youtubeMatch = url.match(youtubeRegex);
             if (youtubeMatch) {
-                return `https://www.youtube.com/embed/${youtubeMatch[1]}?autoplay=1&rel=0`;
+                return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
             }
             
-            // Streamtape handling
-            const streamtapeRegex = /streamtape\.com\/e\/([^&\s]+)/;
-            const streamtapeMatch = url.match(streamtapeRegex);
-            if (streamtapeMatch) {
-                return `https://streamtape.com/e/${streamtapeMatch[1]}`;
-            }
-            
-            // Direct video links
+            // Direct videos
             if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i)) {
                 return url;
             }
             
-            return '';
+            return url;
         }
 
         function isDirectVideo(url) {
             return url && url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i);
         }
 
-        function isYouTube(url) {
-            return url && (url.includes('youtube.com') || url.includes('youtu.be'));
-        }
-
-        function isStreamtape(url) {
-            return url && url.includes('streamtape.com');
-        }
-
-        function isValidVideoUrl(url) {
-            return isYouTube(url) || isStreamtape(url) || isDirectVideo(url);
-        }
-
-        // API functions for PocketBase
-        async function apiRequest(endpoint, options = {}) {
-            state.isLoading = true;
-            render();
-            
-            try {
-                const url = `${API_BASE}/api/collections/rooms/records${endpoint}`;
-                const config = {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...options.headers
-                    },
-                    ...options
-                };
-
-                if (options.body) {
-                    config.body = options.body;
-                }
-
-                const response = await fetch(url, config);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                const data = await response.json();
-                state.isOnline = true;
-                state.isLoading = false;
-                return data;
-            } catch (error) {
-                console.error('API error:', error);
-                state.isOnline = false;
-                state.isLoading = false;
-                return null;
-            }
-        }
-
-        // Create a new room
-        async function createRoom() {
+        // Create room
+        function createRoom() {
             if (!state.username.trim()) {
                 alert('Please enter your username');
                 return;
@@ -383,102 +310,115 @@
 
             const roomId = generateRoomId();
             state.currentRoom = roomId;
-            state.isHost = true;
             state.isInRoom = true;
             state.viewers = [state.username];
+            state.messages = [{
+                sender: 'System',
+                text: `Room created! Share this ID: ${roomId}`,
+                time: new Date().toLocaleTimeString()
+            }];
 
-            const roomData = {
-                id: roomId,
+            // Save initial room data
+            sync.set(roomId, {
                 videoUrl: '',
-                messages: JSON.stringify([{
-                    sender: 'System',
-                    text: `Room created! Share this ID: ${roomId}`,
-                    time: new Date().toLocaleTimeString()
-                }]),
-                viewers: JSON.stringify(state.viewers),
-                videoState: JSON.stringify(state.videoState)
-            };
-
-            const result = await apiRequest('', {
-                method: 'POST',
-                body: JSON.stringify(roomData)
+                messages: state.messages,
+                viewers: state.viewers,
+                videoState: state.videoState
             });
 
-            if (result) {
-                state.messages = JSON.parse(result.messages);
-                state.viewers = JSON.parse(result.viewers);
-                startPolling();
-                render();
-            } else {
-                alert('Failed to create room. Please try again.');
-                state.isInRoom = false;
-                render();
-            }
+            // Listen for changes
+            state.unsubscribe = sync.onSnapshot(roomId, (data) => {
+                updateState(data);
+            });
+
+            render();
         }
 
-        // Join an existing room
-        async function joinRoom() {
+        // Join room
+        function joinRoom() {
             if (!state.username.trim() || !state.roomId.trim()) {
                 alert('Please enter both username and room ID');
                 return;
             }
 
-            state.currentRoom = state.roomId.toUpperCase();
-            state.isInRoom = true;
-            render();
+            const roomId = state.roomId.toUpperCase();
+            const roomData = sync.get(roomId);
 
-            let roomData = await apiRequest(`/${state.currentRoom}`);
-
-            if (!roomData) {
-                alert('Room not found! Please check the room ID.');
-                state.isInRoom = false;
-                render();
+            if (!roomData.messages) {
+                alert('Room not found!');
                 return;
             }
 
-            // Update viewers
-            const viewers = JSON.parse(roomData.viewers || '[]');
+            state.currentRoom = roomId;
+            state.isInRoom = true;
+
+            // Add user to viewers
+            const viewers = roomData.viewers || [];
             if (!viewers.includes(state.username)) {
                 viewers.push(state.username);
             }
 
             // Add join message
-            const messages = JSON.parse(roomData.messages || '[]');
+            const messages = roomData.messages || [];
             messages.push({
                 sender: 'System',
                 text: `${state.username} joined the room`,
                 time: new Date().toLocaleTimeString()
             });
 
-            const updatedData = {
-                viewers: JSON.stringify(viewers),
-                messages: JSON.stringify(messages)
-            };
-
-            const updateResult = await apiRequest(`/${state.currentRoom}`, {
-                method: 'PATCH',
-                body: JSON.stringify(updatedData)
+            // Update room
+            sync.set(roomId, {
+                viewers: viewers,
+                messages: messages,
+                videoUrl: roomData.videoUrl || '',
+                videoState: roomData.videoState || state.videoState
             });
 
-            if (updateResult) {
-                state.viewers = viewers;
-                state.messages = messages;
-                state.videoUrl = roomData.videoUrl || '';
-                state.videoState = JSON.parse(roomData.videoState || '{"playing":false,"currentTime":0}');
-                startPolling();
+            // Update local state
+            state.viewers = viewers;
+            state.messages = messages;
+            state.videoUrl = roomData.videoUrl || '';
+
+            // Listen for changes
+            state.unsubscribe = sync.onSnapshot(roomId, (data) => {
+                updateState(data);
+            });
+
+            render();
+        }
+
+        // Update state from sync
+        function updateState(data) {
+            let changed = false;
+
+            if (data.videoUrl !== state.videoUrl) {
+                state.videoUrl = data.videoUrl;
+                changed = true;
+            }
+
+            if (data.messages && data.messages.length !== state.messages.length) {
+                state.messages = data.messages;
+                changed = true;
+            }
+
+            if (data.viewers && JSON.stringify(data.viewers) !== JSON.stringify(state.viewers)) {
+                state.viewers = data.viewers;
+                changed = true;
+            }
+
+            if (data.videoState) {
+                syncVideo(data.videoState);
+            }
+
+            if (changed) {
                 render();
             }
         }
 
-        // Set video URL
-        async function setVideo() {
+        // Set video
+        function setVideo() {
             if (!state.videoUrl.trim()) {
                 alert('Please enter a video URL');
-                return;
-            }
-
-            if (!isValidVideoUrl(state.videoUrl)) {
-                alert('Please enter a valid YouTube, Streamtape, or direct video URL');
                 return;
             }
 
@@ -488,26 +428,19 @@
                 time: new Date().toLocaleTimeString()
             }];
 
-            const updateData = {
+            sync.set(state.currentRoom, {
                 videoUrl: state.videoUrl,
-                messages: JSON.stringify(messages),
-                videoState: JSON.stringify({ playing: false, currentTime: 0, lastUpdated: Date.now(), source: state.username })
-            };
-
-            const result = await apiRequest(`/${state.currentRoom}`, {
-                method: 'PATCH',
-                body: JSON.stringify(updateData)
+                messages: messages,
+                videoState: { playing: false, currentTime: 0 }
             });
 
-            if (result) {
-                state.messages = messages;
-                state.videoUrl = '';
-                render();
-            }
+            state.messages = messages;
+            state.videoUrl = '';
+            render();
         }
 
-        // Send chat message
-        async function sendMessage() {
+        // Send message
+        function sendMessage() {
             if (!state.messageInput.trim()) return;
 
             const messages = [...state.messages, {
@@ -516,16 +449,10 @@
                 time: new Date().toLocaleTimeString()
             }];
 
-            const result = await apiRequest(`/${state.currentRoom}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ messages: JSON.stringify(messages) })
-            });
-
-            if (result) {
-                state.messages = messages;
-                state.messageInput = '';
-                render();
-            }
+            sync.set(state.currentRoom, { messages: messages });
+            state.messages = messages;
+            state.messageInput = '';
+            render();
         }
 
         // Video sync functions
@@ -533,134 +460,58 @@
             videoElement = document.getElementById('videoPlayer');
             if (!videoElement || videoElement.tagName !== 'VIDEO') return;
 
-            videoElement.addEventListener('play', handleVideoPlay);
-            videoElement.addEventListener('pause', handleVideoPause);
-            videoElement.addEventListener('seeked', handleVideoSeek);
-            videoElement.addEventListener('timeupdate', handleTimeUpdate);
+            videoElement.addEventListener('play', () => updateVideoState(true));
+            videoElement.addEventListener('pause', () => updateVideoState(false));
+            videoElement.addEventListener('seeked', () => updateVideoState(!videoElement.paused));
         }
 
-        function handleVideoPlay() {
-            if (!state.isSyncing) {
-                updateVideoState(true, videoElement.currentTime);
+        function updateVideoState(playing) {
+            if (videoElement) {
+                sync.set(state.currentRoom, {
+                    videoState: {
+                        playing: playing,
+                        currentTime: videoElement.currentTime,
+                        lastUpdated: Date.now()
+                    }
+                });
             }
         }
 
-        function handleVideoPause() {
-            if (!state.isSyncing) {
-                updateVideoState(false, videoElement.currentTime);
-            }
-        }
+        function syncVideo(remoteState) {
+            if (!videoElement || videoElement.tagName !== 'VIDEO') return;
 
-        function handleVideoSeek() {
-            if (!state.isSyncing) {
-                updateVideoState(!videoElement.paused, videoElement.currentTime);
-            }
-        }
-
-        function handleTimeUpdate() {
-            const now = Date.now();
-            if (now - state.videoState.lastUpdated > 1000 && !state.isSyncing) {
-                updateVideoState(!videoElement.paused, videoElement.currentTime);
-            }
-        }
-
-        async function updateVideoState(playing, currentTime) {
-            state.videoState = {
-                playing: playing,
-                currentTime: currentTime,
-                lastUpdated: Date.now(),
-                source: state.username
-            };
-
-            await apiRequest(`/${state.currentRoom}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ videoState: JSON.stringify(state.videoState) })
-            });
-        }
-
-        async function syncVideoWithState() {
-            if (!videoElement || state.isSyncing || videoElement.tagName !== 'VIDEO') return;
-
-            const roomData = await apiRequest(`/${state.currentRoom}`);
-            if (!roomData || !roomData.videoState) return;
-
-            const remoteState = JSON.parse(roomData.videoState);
-            if (remoteState.source === state.username) return;
-
-            const timeDiff = Math.abs(remoteState.currentTime - (videoElement.currentTime || 0));
-            const timeSinceUpdate = Date.now() - remoteState.lastUpdated;
-
-            if (timeSinceUpdate < 2000) {
-                state.isSyncing = true;
-
-                // Sync time if difference is significant
-                if (timeDiff > 2) {
-                    videoElement.currentTime = remoteState.currentTime;
-                }
-
-                // Sync play/pause state
-                if (remoteState.playing && videoElement.paused) {
-                    videoElement.play().catch(e => console.log('Play failed:', e));
-                } else if (!remoteState.playing && !videoElement.paused) {
-                    videoElement.pause();
-                }
-
-                state.videoState = remoteState;
-
-                setTimeout(() => {
-                    state.isSyncing = false;
-                }, 100);
-            }
-        }
-
-        function startPolling() {
-            if (syncInterval) clearInterval(syncInterval);
-            syncInterval = setInterval(async () => {
-                const roomData = await apiRequest(`/${state.currentRoom}`);
-                if (roomData) {
-                    updateStateFromServer(roomData);
-                    await syncVideoWithState();
-                }
-            }, 1000);
-        }
-
-        function updateStateFromServer(data) {
-            let needsRender = false;
-
-            const messages = JSON.parse(data.messages || '[]');
-            const viewers = JSON.parse(data.viewers || '[]');
-            const videoUrl = data.videoUrl || '';
-
-            if (videoUrl !== state.videoUrl) {
-                state.videoUrl = videoUrl;
-                needsRender = true;
+            const timeDiff = Math.abs(remoteState.currentTime - videoElement.currentTime);
+            if (timeDiff > 2) {
+                videoElement.currentTime = remoteState.currentTime;
             }
 
-            if (messages.length !== state.messages.length) {
-                state.messages = messages;
-                needsRender = true;
-            }
-
-            if (JSON.stringify(viewers) !== JSON.stringify(state.viewers)) {
-                state.viewers = viewers;
-                needsRender = true;
-            }
-
-            if (needsRender) {
-                render();
+            if (remoteState.playing && videoElement.paused) {
+                videoElement.play();
+            } else if (!remoteState.playing && !videoElement.paused) {
+                videoElement.pause();
             }
         }
 
         function copyRoomId() {
             navigator.clipboard.writeText(state.currentRoom)
-                .then(() => alert('Room ID copied to clipboard!'))
-                .catch(err => console.error('Failed to copy: ', err));
+                .then(() => alert('Room ID copied!'))
+                .catch(err => console.error('Copy failed:', err));
         }
 
         function leaveRoom() {
-            if (syncInterval) {
-                clearInterval(syncInterval);
-                syncInterval = null;
+            if (state.unsubscribe) {
+                state.unsubscribe();
+            }
+
+            // Remove user from viewers
+            if (state.currentRoom) {
+                const roomData = sync.get(state.currentRoom);
+                const viewers = roomData.viewers || [];
+                const index = viewers.indexOf(state.username);
+                if (index > -1) {
+                    viewers.splice(index, 1);
+                }
+                sync.set(state.currentRoom, { viewers: viewers });
             }
 
             state.isInRoom = false;
@@ -668,18 +519,18 @@
             state.videoUrl = '';
             state.messages = [];
             state.viewers = [];
-            state.videoState = { playing: false, currentTime: 0, lastUpdated: 0, source: '' };
             render();
         }
 
+        // Render functions
         function renderLoginScreen() {
             return `
                 <div class="login-screen">
                     <div class="card login-card">
                         <h1>Watch2gether</h1>
-                        <p class="subtitle">Watch videos together in real-time</p>
+                        <p class="subtitle">Simple Sync Version</p>
                         
-                        <div class="form-group">
+                        <div style="margin-bottom: 1rem;">
                             <label>Your Username</label>
                             <input 
                                 type="text" 
@@ -689,20 +540,21 @@
                             />
                         </div>
                         
-                        <button onclick="createRoom()" ${state.isLoading ? 'disabled' : ''}>
-                            ${state.isLoading ? '⏳ Creating...' : '👥 Create New Room'}
+                        <button onclick="createRoom()">
+                            👥 Create New Room
                         </button>
                         
-                        <div class="divider">
+                        <div style="border-top: 1px solid rgba(255,255,255,0.2); margin: 1.5rem 0; padding-top: 1.5rem;">
                             <label>Join Existing Room</label>
                             <input 
                                 type="text" 
                                 id="roomId" 
                                 value="${state.roomId}"
                                 placeholder="Enter Room ID"
+                                style="margin-bottom: 0.75rem;"
                             />
-                            <button onclick="joinRoom()" class="btn-secondary" ${state.isLoading ? 'disabled' : ''}>
-                                ${state.isLoading ? '⏳ Joining...' : 'Join Room'}
+                            <button onclick="joinRoom()" style="background: #4f46e5;">
+                                Join Room
                             </button>
                         </div>
                     </div>
@@ -718,18 +570,8 @@
             if (state.videoUrl) {
                 if (isDirect) {
                     videoElement = `<video id="videoPlayer" controls src="${state.videoUrl}"></video>`;
-                } else if (embedUrl) {
-                    videoElement = `<iframe id="videoPlayer" src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
                 } else {
-                    videoElement = `
-                        <div class="video-placeholder">
-                            <div>
-                                <p style="font-size: 3rem; margin-bottom: 1rem;">❌</p>
-                                <p>Invalid video URL</p>
-                                <p>Please use YouTube, Streamtape, or direct video links</p>
-                            </div>
-                        </div>
-                    `;
+                    videoElement = `<iframe id="videoPlayer" src="${embedUrl}" allowfullscreen></iframe>`;
                 }
             } else {
                 videoElement = `
@@ -737,7 +579,7 @@
                         <div>
                             <p style="font-size: 3rem; margin-bottom: 1rem;">▶️</p>
                             <p>No video loaded</p>
-                            <p>Add a YouTube or video URL below</p>
+                            <p>Add a YouTube URL or direct video link</p>
                         </div>
                     </div>
                 `;
@@ -745,8 +587,9 @@
 
             return `
                 <div class="container">
-                    ${!state.isOnline ? '<div class="offline-warning">⚠️ Connection issues - trying to reconnect...</div>' : ''}
-                    ${state.isLoading ? '<div class="loading">⏳ Syncing...</div>' : ''}
+                    <div class="warning">
+                        ⚠️ This works across devices using browser sync. For best results, use direct video URLs.
+                    </div>
                     
                     <div class="header">
                         <div>
@@ -757,7 +600,7 @@
                         </div>
                         <div class="flex">
                             <span>👥 ${state.viewers.length} viewers</span>
-                            <button class="btn-small btn-secondary" onclick="leaveRoom()">Leave</button>
+                            <button class="btn-small" style="background: #4f46e5;" onclick="leaveRoom()">Leave</button>
                         </div>
                     </div>
                     
@@ -767,7 +610,6 @@
                                 <div class="video-container">
                                     ${videoElement}
                                 </div>
-                                ${isDirect ? '<div class="sync-status">🎯 Real-time sync enabled</div>' : '<div class="sync-status">⚠️ Sync limited for embedded videos</div>'}
                             </div>
                             
                             <div class="card">
@@ -777,15 +619,13 @@
                                         type="text" 
                                         id="videoUrl" 
                                         value="${state.videoUrl}"
-                                        placeholder="YouTube URL, Streamtape, or direct video link"
+                                        placeholder="YouTube URL or direct video link"
                                     />
-                                    <button onclick="setVideo()" ${state.isLoading ? 'disabled' : ''}>Load</button>
+                                    <button onclick="setVideo()">Load</button>
                                 </div>
-                                <div class="url-examples">
-                                    <div>Examples:</div>
-                                    <div>YouTube: https://www.youtube.com/watch?v=dQw4w9WgXcQ</div>
-                                    <div>Streamtape: https://streamtape.com/e/xxxxxxxxxxxx</div>
-                                    <div>Direct video: https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4</div>
+                                <div style="font-size: 0.75rem; color: #c4b5fd; margin-top: 0.5rem;">
+                                    <div>Try: https://www.youtube.com/watch?v=dQw4w9WgXcQ</div>
+                                    <div>Or: https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4</div>
                                 </div>
                             </div>
                             
@@ -805,13 +645,13 @@
                                 <div class="chat-messages" id="chatMessages">
                                     ${state.messages.map(msg => `
                                         <div class="message">
-                                            <div class="message-header">
-                                                <span class="message-sender ${msg.sender === 'System' ? 'system' : ''}">
+                                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                                                <span style="font-weight: bold; color: ${msg.sender === 'System' ? '#fcd34d' : '#c4b5fd'}">
                                                     ${msg.sender}
                                                 </span>
-                                                <span class="message-time">${msg.time}</span>
+                                                <span style="color: rgba(255,255,255,0.5); font-size: 0.75rem;">${msg.time}</span>
                                             </div>
-                                            <div class="message-text">${msg.text}</div>
+                                            <div>${msg.text}</div>
                                         </div>
                                     `).join('')}
                                 </div>
@@ -822,7 +662,7 @@
                                         value="${state.messageInput}"
                                         placeholder="Type a message..."
                                     />
-                                    <button onclick="sendMessage()" ${state.isLoading ? 'disabled' : ''}>Send</button>
+                                    <button onclick="sendMessage()">Send</button>
                                 </div>
                             </div>
                         </div>
@@ -840,59 +680,35 @@
                 const roomIdInput = document.getElementById('roomId');
                 
                 if (usernameInput) {
-                    usernameInput.addEventListener('input', (e) => {
-                        state.username = e.target.value;
-                    });
-                    usernameInput.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter') createRoom();
-                    });
+                    usernameInput.addEventListener('input', (e) => state.username = e.target.value);
+                    usernameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') createRoom(); });
                 }
-                
                 if (roomIdInput) {
-                    roomIdInput.addEventListener('input', (e) => {
-                        state.roomId = e.target.value;
-                    });
-                    roomIdInput.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter') joinRoom();
-                    });
+                    roomIdInput.addEventListener('input', (e) => state.roomId = e.target.value);
+                    roomIdInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') joinRoom(); });
                 }
             } else {
                 const videoUrlInput = document.getElementById('videoUrl');
                 const messageInput = document.getElementById('messageInput');
                 
                 if (videoUrlInput) {
-                    videoUrlInput.addEventListener('input', (e) => {
-                        state.videoUrl = e.target.value;
-                    });
-                    videoUrlInput.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter') setVideo();
-                    });
+                    videoUrlInput.addEventListener('input', (e) => state.videoUrl = e.target.value);
+                    videoUrlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') setVideo(); });
                 }
-                
                 if (messageInput) {
-                    messageInput.addEventListener('input', (e) => {
-                        state.messageInput = e.target.value;
-                    });
-                    messageInput.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter') sendMessage();
-                    });
+                    messageInput.addEventListener('input', (e) => state.messageInput = e.target.value);
+                    messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
                 }
                 
-                // Setup video synchronization
                 setTimeout(setupVideoSync, 100);
                 
-                // Scroll chat to bottom
                 const chatMessages = document.getElementById('chatMessages');
-                if (chatMessages) {
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                }
+                if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
             }
         }
 
         // Initialize
         render();
-
-        // Make functions global
         window.createRoom = createRoom;
         window.joinRoom = joinRoom;
         window.setVideo = setVideo;
