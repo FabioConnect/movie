@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Watch2gether - Working Cross-Device Sync</title>
+    <title>Watch2gether - Peer-to-Peer Sync</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -37,33 +37,123 @@
         .loading { color: #c4b5fd; text-align: center; padding: 1rem; }
         .error { background: rgba(239,68,68,0.2); border: 1px solid #ef4444; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; }
     </style>
-    
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
 </head>
 <body>
     <div id="app"></div>
 
     <script>
-        // Firebase configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyCZ8kPJrXvycJN6fQN8q9w7v6v8W7v6v8W",
-            authDomain: "watch2gether-demo.firebaseapp.com",
-            projectId: "watch2gether-demo",
-            storageBucket: "watch2gether-demo.appspot.com",
-            messagingSenderId: "123456789",
-            appId: "1:123456789:web:abcdef123456"
-        };
+        // Simple WebSocket-like signaling using localStorage and polling
+        class PeerSync {
+            constructor() {
+                this.peers = new Map();
+                this.roomData = {};
+                this.pollingInterval = null;
+            }
 
-        // Initialize Firebase
-        try {
-            firebase.initializeApp(firebaseConfig);
-        } catch (error) {
-            console.log('Firebase already initialized');
+            // Generate a unique peer ID
+            generatePeerId() {
+                return Math.random().toString(36).substring(2, 15);
+            }
+
+            // Join a room
+            joinRoom(roomId, peerId, onMessage) {
+                this.roomId = roomId;
+                this.peerId = peerId;
+                this.onMessage = onMessage;
+
+                // Load existing room data
+                this.loadRoomData();
+
+                // Start polling for messages
+                this.startPolling();
+
+                return true;
+            }
+
+            // Send message to all peers in room
+            broadcast(message) {
+                const roomData = this.loadRoomData();
+                if (!roomData.messages) roomData.messages = [];
+                if (!roomData.peers) roomData.peers = [];
+
+                // Add message
+                roomData.messages.push({
+                    ...message,
+                    peerId: this.peerId,
+                    timestamp: Date.now()
+                });
+
+                // Update peers list
+                if (!roomData.peers.includes(this.peerId)) {
+                    roomData.peers.push(this.peerId);
+                }
+
+                roomData.lastUpdated = Date.now();
+                this.saveRoomData(roomData);
+            }
+
+            // Load room data from localStorage
+            loadRoomData() {
+                try {
+                    const data = localStorage.getItem(`room_${this.roomId}`);
+                    this.roomData = data ? JSON.parse(data) : { messages: [], peers: [] };
+                    return this.roomData;
+                } catch {
+                    this.roomData = { messages: [], peers: [] };
+                    return this.roomData;
+                }
+            }
+
+            // Save room data to localStorage
+            saveRoomData(data) {
+                localStorage.setItem(`room_${this.roomId}`, JSON.stringify(data));
+                this.roomData = data;
+            }
+
+            // Poll for new messages
+            startPolling() {
+                this.pollingInterval = setInterval(() => {
+                    const oldData = { ...this.roomData };
+                    const newData = this.loadRoomData();
+
+                    // Check for new messages
+                    if (newData.messages && newData.messages.length > oldData.messages.length) {
+                        const newMessages = newData.messages.slice(oldData.messages.length);
+                        newMessages.forEach(message => {
+                            if (message.peerId !== this.peerId) {
+                                this.onMessage(message);
+                            }
+                        });
+                    }
+
+                    // Update room data
+                    this.roomData = newData;
+                }, 1000);
+            }
+
+            // Leave room
+            leaveRoom() {
+                if (this.pollingInterval) {
+                    clearInterval(this.pollingInterval);
+                    this.pollingInterval = null;
+                }
+
+                // Remove peer from room
+                const roomData = this.loadRoomData();
+                if (roomData.peers) {
+                    roomData.peers = roomData.peers.filter(peer => peer !== this.peerId);
+                    this.saveRoomData(roomData);
+                }
+            }
+
+            // Get room data
+            getRoomData() {
+                return this.roomData;
+            }
         }
-        
-        const db = firebase.firestore();
+
+        // Initialize peer sync
+        const peerSync = new PeerSync();
 
         let state = {
             username: '',
@@ -76,7 +166,7 @@
             isInRoom: false,
             videoState: { playing: false, currentTime: 0 },
             isLoading: false,
-            unsubscribe: null
+            peerId: null
         };
 
         let videoElement = null;
@@ -100,211 +190,179 @@
             return url && url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i);
         }
 
-        // Room management with Firebase
-        async function createRoom() {
+        // Handle incoming messages
+        function handlePeerMessage(message) {
+            console.log('Received message:', message);
+
+            switch (message.type) {
+                case 'chat':
+                    if (!state.messages.some(msg => msg.timestamp === message.timestamp)) {
+                        state.messages.push(message);
+                        render();
+                    }
+                    break;
+
+                case 'video_url':
+                    if (message.url !== state.videoUrl) {
+                        state.videoUrl = message.url;
+                        render();
+                    }
+                    break;
+
+                case 'video_state':
+                    if (message.peerId !== state.peerId) {
+                        syncVideo(message.state);
+                    }
+                    break;
+
+                case 'user_joined':
+                    if (!state.viewers.includes(message.username)) {
+                        state.viewers.push(message.username);
+                        render();
+                    }
+                    break;
+
+                case 'system':
+                    if (!state.messages.some(msg => msg.timestamp === message.timestamp)) {
+                        state.messages.push(message);
+                        render();
+                    }
+                    break;
+            }
+        }
+
+        // Create room
+        function createRoom() {
             if (!state.username.trim()) {
                 alert('Please enter your username');
                 return;
             }
 
-            state.isLoading = true;
-            render();
-
             const roomId = generateRoomId();
-            state.currentRoom = roomId;
-            
-            const roomData = {
-                videoUrl: '',
-                messages: [{
-                    sender: 'System',
-                    text: `Room created! Share this ID: ${roomId}`,
-                    time: new Date().toLocaleTimeString(),
-                    timestamp: Date.now()
-                }],
-                viewers: [state.username],
-                videoState: { playing: false, currentTime: 0 },
-                lastUpdated: Date.now()
-            };
+            const peerId = peerSync.generatePeerId();
 
-            try {
-                await db.collection('rooms').doc(roomId).set(roomData);
-                
-                state.isInRoom = true;
-                state.messages = roomData.messages;
-                state.viewers = roomData.viewers;
-                state.videoUrl = roomData.videoUrl;
-                
-                // Listen for real-time updates
-                state.unsubscribe = db.collection('rooms').doc(roomId)
-                    .onSnapshot((doc) => {
-                        if (doc.exists) {
-                            const data = doc.data();
-                            updateState(data);
-                        }
-                    });
-                
-                state.isLoading = false;
-                render();
-            } catch (error) {
-                console.error('Error creating room:', error);
-                alert('Failed to create room. Please try again.');
-                state.isLoading = false;
-                render();
-            }
+            state.currentRoom = roomId;
+            state.isInRoom = true;
+            state.peerId = peerId;
+            state.viewers = [state.username];
+
+            // Join the room
+            peerSync.joinRoom(roomId, peerId, handlePeerMessage);
+
+            // Send system message
+            peerSync.broadcast({
+                type: 'system',
+                sender: 'System',
+                text: `Room created! Share this ID: ${roomId}`,
+                time: new Date().toLocaleTimeString()
+            });
+
+            // Send user joined message
+            peerSync.broadcast({
+                type: 'user_joined',
+                username: state.username
+            });
+
+            state.messages = peerSync.getRoomData().messages || [];
+            
+            render();
         }
 
-        async function joinRoom() {
+        // Join room
+        function joinRoom() {
             if (!state.username.trim() || !state.roomId.trim()) {
                 alert('Please enter both username and room ID');
                 return;
             }
 
-            state.isLoading = true;
-            render();
-
             const roomId = state.roomId.toUpperCase();
+            const peerId = peerSync.generatePeerId();
 
+            // Check if room exists by trying to load its data
             try {
-                const doc = await db.collection('rooms').doc(roomId).get();
-                
-                if (!doc.exists) {
+                const roomData = JSON.parse(localStorage.getItem(`room_${roomId}`));
+                if (!roomData) {
                     alert('Room not found! Please check the room ID.');
-                    state.isLoading = false;
-                    render();
                     return;
                 }
+            } catch {
+                alert('Room not found! Please check the room ID.');
+                return;
+            }
 
-                state.currentRoom = roomId;
-                
-                const roomData = doc.data();
-                
-                // Update viewers
-                const viewers = roomData.viewers || [];
-                if (!viewers.includes(state.username)) {
-                    viewers.push(state.username);
+            state.currentRoom = roomId;
+            state.isInRoom = true;
+            state.peerId = peerId;
+
+            // Join the room
+            peerSync.joinRoom(roomId, peerId, handlePeerMessage);
+
+            // Send user joined message
+            peerSync.broadcast({
+                type: 'user_joined',
+                username: state.username
+            });
+
+            peerSync.broadcast({
+                type: 'system',
+                sender: 'System',
+                text: `${state.username} joined the room`,
+                time: new Date().toLocaleTimeString()
+            });
+
+            // Load existing room data
+            const roomData = peerSync.getRoomData();
+            state.messages = roomData.messages || [];
+            state.videoUrl = roomData.videoUrl || '';
+            state.viewers = Array.from(new Set([...state.viewers, state.username]));
+
+            // Get existing viewers from messages
+            const userJoinedMessages = roomData.messages?.filter(msg => msg.type === 'user_joined') || [];
+            userJoinedMessages.forEach(msg => {
+                if (msg.username && !state.viewers.includes(msg.username)) {
+                    state.viewers.push(msg.username);
                 }
+            });
 
-                // Add join message
-                const messages = roomData.messages || [];
-                messages.push({
-                    sender: 'System',
-                    text: `${state.username} joined the room`,
-                    time: new Date().toLocaleTimeString(),
-                    timestamp: Date.now()
-                });
-
-                // Update room
-                await db.collection('rooms').doc(roomId).update({
-                    viewers: viewers,
-                    messages: messages,
-                    lastUpdated: Date.now()
-                });
-
-                state.isInRoom = true;
-                state.messages = messages;
-                state.viewers = viewers;
-                state.videoUrl = roomData.videoUrl || '';
-                state.videoState = roomData.videoState || { playing: false, currentTime: 0 };
-                
-                // Listen for real-time updates
-                state.unsubscribe = db.collection('rooms').doc(roomId)
-                    .onSnapshot((doc) => {
-                        if (doc.exists) {
-                            const data = doc.data();
-                            updateState(data);
-                        }
-                    });
-                
-                state.isLoading = false;
-                render();
-            } catch (error) {
-                console.error('Error joining room:', error);
-                alert('Failed to join room. Please try again.');
-                state.isLoading = false;
-                render();
-            }
+            render();
         }
 
-        function updateState(data) {
-            let changed = false;
-
-            if (data.videoUrl !== state.videoUrl) {
-                state.videoUrl = data.videoUrl;
-                changed = true;
-            }
-
-            if (data.messages && data.messages.length !== state.messages.length) {
-                state.messages = data.messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-                changed = true;
-            }
-
-            if (data.viewers && JSON.stringify(data.viewers) !== JSON.stringify(state.viewers)) {
-                state.viewers = data.viewers;
-                changed = true;
-            }
-
-            if (data.videoState) {
-                syncVideo(data.videoState);
-            }
-
-            if (changed) {
-                render();
-            }
-        }
-
-        async function setVideo() {
+        // Set video
+        function setVideo() {
             if (!state.videoUrl.trim()) {
                 alert('Please enter a video URL');
                 return;
             }
 
-            const messages = [...state.messages, {
+            peerSync.broadcast({
+                type: 'video_url',
+                url: state.videoUrl
+            });
+
+            peerSync.broadcast({
+                type: 'system',
                 sender: 'System',
                 text: `Video set by ${state.username}`,
-                time: new Date().toLocaleTimeString(),
-                timestamp: Date.now()
-            }];
+                time: new Date().toLocaleTimeString()
+            });
 
-            try {
-                await db.collection('rooms').doc(state.currentRoom).update({
-                    videoUrl: state.videoUrl,
-                    messages: messages,
-                    videoState: { playing: false, currentTime: 0 },
-                    lastUpdated: Date.now()
-                });
-
-                state.messages = messages;
-                state.videoUrl = '';
-                render();
-            } catch (error) {
-                console.error('Error setting video:', error);
-                alert('Failed to set video. Please try again.');
-            }
+            state.videoUrl = '';
+            render();
         }
 
-        async function sendMessage() {
+        // Send message
+        function sendMessage() {
             if (!state.messageInput.trim()) return;
 
-            const messages = [...state.messages, {
+            peerSync.broadcast({
+                type: 'chat',
                 sender: state.username,
                 text: state.messageInput,
-                time: new Date().toLocaleTimeString(),
-                timestamp: Date.now()
-            }];
+                time: new Date().toLocaleTimeString()
+            });
 
-            try {
-                await db.collection('rooms').doc(state.currentRoom).update({
-                    messages: messages,
-                    lastUpdated: Date.now()
-                });
-
-                state.messages = messages;
-                state.messageInput = '';
-                render();
-            } catch (error) {
-                console.error('Error sending message:', error);
-                alert('Failed to send message. Please try again.');
-            }
+            state.messageInput = '';
+            render();
         }
 
         // Video sync
@@ -317,21 +375,17 @@
             videoElement.addEventListener('seeked', () => updateVideoState(!videoElement.paused));
         }
 
-        async function updateVideoState(playing) {
+        function updateVideoState(playing) {
             if (!videoElement) return;
 
-            try {
-                await db.collection('rooms').doc(state.currentRoom).update({
-                    videoState: {
-                        playing: playing,
-                        currentTime: videoElement.currentTime,
-                        lastUpdated: Date.now()
-                    },
-                    lastUpdated: Date.now()
-                });
-            } catch (error) {
-                console.error('Error updating video state:', error);
-            }
+            peerSync.broadcast({
+                type: 'video_state',
+                state: {
+                    playing: playing,
+                    currentTime: videoElement.currentTime,
+                    timestamp: Date.now()
+                }
+            });
         }
 
         function syncVideo(remoteState) {
@@ -357,17 +411,8 @@
         }
 
         function leaveRoom() {
-            if (state.unsubscribe) {
-                state.unsubscribe();
-            }
-
-            // Remove user from viewers
-            if (state.currentRoom) {
-                const viewers = state.viewers.filter(viewer => viewer !== state.username);
-                db.collection('rooms').doc(state.currentRoom).update({
-                    viewers: viewers,
-                    lastUpdated: Date.now()
-                }).catch(console.error);
+            if (peerSync) {
+                peerSync.leaveRoom();
             }
 
             state.isInRoom = false;
@@ -375,6 +420,7 @@
             state.videoUrl = '';
             state.messages = [];
             state.viewers = [];
+            state.peerId = null;
             render();
         }
 
@@ -384,23 +430,21 @@
                 <div class="login-screen">
                     <div class="card login-card">
                         <h1>Watch2gether</h1>
-                        <p style="color: #c4b5fd; margin-bottom: 1rem;">Firebase Real-time Sync</p>
-                        
-                        ${state.isLoading ? '<div class="loading">⏳ Loading...</div>' : ''}
+                        <p style="color: #c4b5fd; margin-bottom: 1rem;">Peer-to-Peer Sync</p>
                         
                         <div style="margin-bottom: 1rem;">
                             <label>Your Username</label>
                             <input type="text" id="username" value="${state.username}" placeholder="Enter your name"/>
                         </div>
                         
-                        <button onclick="createRoom()" ${state.isLoading ? 'disabled' : ''}>
+                        <button onclick="createRoom()">
                             👥 Create New Room
                         </button>
                         
                         <div style="border-top: 1px solid rgba(255,255,255,0.2); margin: 1.5rem 0; padding-top: 1.5rem;">
                             <label>Join Existing Room</label>
                             <input type="text" id="roomId" value="${state.roomId}" placeholder="Enter Room ID" style="margin-bottom: 0.75rem;"/>
-                            <button onclick="joinRoom()" style="background: #4f46e5;" ${state.isLoading ? 'disabled' : ''}>
+                            <button onclick="joinRoom()" style="background: #4f46e5;">
                                 Join Room
                             </button>
                         </div>
@@ -436,9 +480,8 @@
                 <div class="container">
                     <div class="success">
                         ✅ Connected! Share this room ID: <strong>${state.currentRoom}</strong>
+                        <br><small>Works across devices on the same network</small>
                     </div>
-                    
-                    ${state.isLoading ? '<div class="loading">⏳ Syncing...</div>' : ''}
                     
                     <div class="header">
                         <div>
@@ -466,7 +509,7 @@
                                 <h3>Add Video URL</h3>
                                 <div class="flex">
                                     <input type="text" id="videoUrl" value="${state.videoUrl}" placeholder="YouTube URL or direct video link"/>
-                                    <button onclick="setVideo()" ${state.isLoading ? 'disabled' : ''}>Load</button>
+                                    <button onclick="setVideo()">Load</button>
                                 </div>
                                 <div style="font-size: 0.75rem; color: #c4b5fd; margin-top: 0.5rem;">
                                     <div>Try: https://www.youtube.com/watch?v=dQw4w9WgXcQ</div>
@@ -490,7 +533,7 @@
                                         <div class="message">
                                             <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
                                                 <span style="font-weight: bold; color: ${msg.sender === 'System' ? '#fcd34d' : '#c4b5fd'}">
-                                                    ${msg.sender}
+                                                    ${msg.sender || 'System'}
                                                 </span>
                                                 <span style="color: rgba(255,255,255,0.5); font-size: 0.75rem;">${msg.time}</span>
                                             </div>
@@ -500,7 +543,7 @@
                                 </div>
                                 <div class="chat-input">
                                     <input type="text" id="messageInput" value="${state.messageInput}" placeholder="Type a message..."/>
-                                    <button onclick="sendMessage()" ${state.isLoading ? 'disabled' : ''}>Send</button>
+                                    <button onclick="sendMessage()">Send</button>
                                 </div>
                             </div>
                         </div>
@@ -516,13 +559,25 @@
             if (!state.isInRoom) {
                 const usernameInput = document.getElementById('username');
                 const roomIdInput = document.getElementById('roomId');
-                if (usernameInput) usernameInput.addEventListener('input', (e) => state.username = e.target.value);
-                if (roomIdInput) roomIdInput.addEventListener('input', (e) => state.roomId = e.target.value);
+                if (usernameInput) {
+                    usernameInput.addEventListener('input', (e) => state.username = e.target.value);
+                    usernameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') createRoom(); });
+                }
+                if (roomIdInput) {
+                    roomIdInput.addEventListener('input', (e) => state.roomId = e.target.value);
+                    roomIdInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') joinRoom(); });
+                }
             } else {
                 const videoUrlInput = document.getElementById('videoUrl');
                 const messageInput = document.getElementById('messageInput');
-                if (videoUrlInput) videoUrlInput.addEventListener('input', (e) => state.videoUrl = e.target.value);
-                if (messageInput) messageInput.addEventListener('input', (e) => state.messageInput = e.target.value);
+                if (videoUrlInput) {
+                    videoUrlInput.addEventListener('input', (e) => state.videoUrl = e.target.value);
+                    videoUrlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') setVideo(); });
+                }
+                if (messageInput) {
+                    messageInput.addEventListener('input', (e) => state.messageInput = e.target.value);
+                    messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+                }
                 setTimeout(setupVideoSync, 100);
                 const chatMessages = document.getElementById('chatMessages');
                 if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
