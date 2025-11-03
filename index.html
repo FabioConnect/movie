@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Watch2gether - Peer-to-Peer Sync</title>
+    <title>Watch2gether - Global Sync</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -37,123 +37,20 @@
         .loading { color: #c4b5fd; text-align: center; padding: 1rem; }
         .error { background: rgba(239,68,68,0.2); border: 1px solid #ef4444; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; }
     </style>
+    
+    <!-- Supabase CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div id="app"></div>
 
     <script>
-        // Simple WebSocket-like signaling using localStorage and polling
-        class PeerSync {
-            constructor() {
-                this.peers = new Map();
-                this.roomData = {};
-                this.pollingInterval = null;
-            }
-
-            // Generate a unique peer ID
-            generatePeerId() {
-                return Math.random().toString(36).substring(2, 15);
-            }
-
-            // Join a room
-            joinRoom(roomId, peerId, onMessage) {
-                this.roomId = roomId;
-                this.peerId = peerId;
-                this.onMessage = onMessage;
-
-                // Load existing room data
-                this.loadRoomData();
-
-                // Start polling for messages
-                this.startPolling();
-
-                return true;
-            }
-
-            // Send message to all peers in room
-            broadcast(message) {
-                const roomData = this.loadRoomData();
-                if (!roomData.messages) roomData.messages = [];
-                if (!roomData.peers) roomData.peers = [];
-
-                // Add message
-                roomData.messages.push({
-                    ...message,
-                    peerId: this.peerId,
-                    timestamp: Date.now()
-                });
-
-                // Update peers list
-                if (!roomData.peers.includes(this.peerId)) {
-                    roomData.peers.push(this.peerId);
-                }
-
-                roomData.lastUpdated = Date.now();
-                this.saveRoomData(roomData);
-            }
-
-            // Load room data from localStorage
-            loadRoomData() {
-                try {
-                    const data = localStorage.getItem(`room_${this.roomId}`);
-                    this.roomData = data ? JSON.parse(data) : { messages: [], peers: [] };
-                    return this.roomData;
-                } catch {
-                    this.roomData = { messages: [], peers: [] };
-                    return this.roomData;
-                }
-            }
-
-            // Save room data to localStorage
-            saveRoomData(data) {
-                localStorage.setItem(`room_${this.roomId}`, JSON.stringify(data));
-                this.roomData = data;
-            }
-
-            // Poll for new messages
-            startPolling() {
-                this.pollingInterval = setInterval(() => {
-                    const oldData = { ...this.roomData };
-                    const newData = this.loadRoomData();
-
-                    // Check for new messages
-                    if (newData.messages && newData.messages.length > oldData.messages.length) {
-                        const newMessages = newData.messages.slice(oldData.messages.length);
-                        newMessages.forEach(message => {
-                            if (message.peerId !== this.peerId) {
-                                this.onMessage(message);
-                            }
-                        });
-                    }
-
-                    // Update room data
-                    this.roomData = newData;
-                }, 1000);
-            }
-
-            // Leave room
-            leaveRoom() {
-                if (this.pollingInterval) {
-                    clearInterval(this.pollingInterval);
-                    this.pollingInterval = null;
-                }
-
-                // Remove peer from room
-                const roomData = this.loadRoomData();
-                if (roomData.peers) {
-                    roomData.peers = roomData.peers.filter(peer => peer !== this.peerId);
-                    this.saveRoomData(roomData);
-                }
-            }
-
-            // Get room data
-            getRoomData() {
-                return this.roomData;
-            }
-        }
-
-        // Initialize peer sync
-        const peerSync = new PeerSync();
+        // === YOUR SUPABASE CREDENTIALS ===
+        const SUPABASE_URL = 'https://uwpknyzrvzljofnnzxic.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3cGtueXpydnpsam9mbm56eGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIxODMxNDUsImV4cCI6MjA3Nzc1OTE0NX0.9woJ_lEdpjksm8WqzMDisSL3pfoGiyzXawwob9-0XcA';
+        
+        // Initialize Supabase with YOUR credentials
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let state = {
             username: '',
@@ -166,7 +63,7 @@
             isInRoom: false,
             videoState: { playing: false, currentTime: 0 },
             isLoading: false,
-            peerId: null
+            subscription: null
         };
 
         let videoElement = null;
@@ -190,179 +87,264 @@
             return url && url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i);
         }
 
-        // Handle incoming messages
-        function handlePeerMessage(message) {
-            console.log('Received message:', message);
-
-            switch (message.type) {
-                case 'chat':
-                    if (!state.messages.some(msg => msg.timestamp === message.timestamp)) {
-                        state.messages.push(message);
-                        render();
-                    }
-                    break;
-
-                case 'video_url':
-                    if (message.url !== state.videoUrl) {
-                        state.videoUrl = message.url;
-                        render();
-                    }
-                    break;
-
-                case 'video_state':
-                    if (message.peerId !== state.peerId) {
-                        syncVideo(message.state);
-                    }
-                    break;
-
-                case 'user_joined':
-                    if (!state.viewers.includes(message.username)) {
-                        state.viewers.push(message.username);
-                        render();
-                    }
-                    break;
-
-                case 'system':
-                    if (!state.messages.some(msg => msg.timestamp === message.timestamp)) {
-                        state.messages.push(message);
-                        render();
-                    }
-                    break;
-            }
-        }
-
-        // Create room
-        function createRoom() {
+        // Room management with Supabase
+        async function createRoom() {
             if (!state.username.trim()) {
                 alert('Please enter your username');
                 return;
             }
 
-            const roomId = generateRoomId();
-            const peerId = peerSync.generatePeerId();
-
-            state.currentRoom = roomId;
-            state.isInRoom = true;
-            state.peerId = peerId;
-            state.viewers = [state.username];
-
-            // Join the room
-            peerSync.joinRoom(roomId, peerId, handlePeerMessage);
-
-            // Send system message
-            peerSync.broadcast({
-                type: 'system',
-                sender: 'System',
-                text: `Room created! Share this ID: ${roomId}`,
-                time: new Date().toLocaleTimeString()
-            });
-
-            // Send user joined message
-            peerSync.broadcast({
-                type: 'user_joined',
-                username: state.username
-            });
-
-            state.messages = peerSync.getRoomData().messages || [];
-            
+            state.isLoading = true;
             render();
+
+            const roomId = generateRoomId();
+            state.currentRoom = roomId;
+            
+            const roomData = {
+                id: roomId,
+                video_url: '',
+                messages: JSON.stringify([{
+                    sender: 'System',
+                    text: `Room created! Share this ID: ${roomId}`,
+                    time: new Date().toLocaleTimeString(),
+                    timestamp: Date.now()
+                }]),
+                viewers: JSON.stringify([state.username]),
+                video_state: JSON.stringify({ playing: false, currentTime: 0 }),
+                last_updated: Date.now()
+            };
+
+            try {
+                // Insert new room
+                const { data, error } = await supabase
+                    .from('rooms')
+                    .insert([roomData]);
+
+                if (error) throw error;
+
+                state.isInRoom = true;
+                state.messages = JSON.parse(roomData.messages);
+                state.viewers = JSON.parse(roomData.viewers);
+                state.videoUrl = roomData.video_url;
+                
+                // Subscribe to real-time updates
+                setupRealtimeSubscription(roomId);
+                
+                state.isLoading = false;
+                render();
+                
+                console.log('Room created successfully:', roomId);
+            } catch (error) {
+                console.error('Error creating room:', error);
+                alert('Error creating room: ' + error.message);
+                state.isLoading = false;
+                render();
+            }
         }
 
-        // Join room
-        function joinRoom() {
+        async function joinRoom() {
             if (!state.username.trim() || !state.roomId.trim()) {
                 alert('Please enter both username and room ID');
                 return;
             }
 
-            const roomId = state.roomId.toUpperCase();
-            const peerId = peerSync.generatePeerId();
+            state.isLoading = true;
+            render();
 
-            // Check if room exists by trying to load its data
+            const roomId = state.roomId.toUpperCase();
+
             try {
-                const roomData = JSON.parse(localStorage.getItem(`room_${roomId}`));
-                if (!roomData) {
-                    alert('Room not found! Please check the room ID.');
+                const { data, error } = await supabase
+                    .from('rooms')
+                    .select('*')
+                    .eq('id', roomId)
+                    .single();
+
+                if (error) {
+                    console.error('Supabase error:', error);
+                    alert('Room not found! Please check the room ID. Error: ' + error.message);
+                    state.isLoading = false;
+                    render();
                     return;
                 }
-            } catch {
-                alert('Room not found! Please check the room ID.');
-                return;
-            }
 
-            state.currentRoom = roomId;
-            state.isInRoom = true;
-            state.peerId = peerId;
-
-            // Join the room
-            peerSync.joinRoom(roomId, peerId, handlePeerMessage);
-
-            // Send user joined message
-            peerSync.broadcast({
-                type: 'user_joined',
-                username: state.username
-            });
-
-            peerSync.broadcast({
-                type: 'system',
-                sender: 'System',
-                text: `${state.username} joined the room`,
-                time: new Date().toLocaleTimeString()
-            });
-
-            // Load existing room data
-            const roomData = peerSync.getRoomData();
-            state.messages = roomData.messages || [];
-            state.videoUrl = roomData.videoUrl || '';
-            state.viewers = Array.from(new Set([...state.viewers, state.username]));
-
-            // Get existing viewers from messages
-            const userJoinedMessages = roomData.messages?.filter(msg => msg.type === 'user_joined') || [];
-            userJoinedMessages.forEach(msg => {
-                if (msg.username && !state.viewers.includes(msg.username)) {
-                    state.viewers.push(msg.username);
+                if (!data) {
+                    alert('Room not found! Please check the room ID.');
+                    state.isLoading = false;
+                    render();
+                    return;
                 }
-            });
 
-            render();
+                state.currentRoom = roomId;
+                
+                // Update viewers
+                const viewers = JSON.parse(data.viewers || '[]');
+                if (!viewers.includes(state.username)) {
+                    viewers.push(state.username);
+                }
+
+                // Add join message
+                const messages = JSON.parse(data.messages || '[]');
+                messages.push({
+                    sender: 'System',
+                    text: `${state.username} joined the room`,
+                    time: new Date().toLocaleTimeString(),
+                    timestamp: Date.now()
+                });
+
+                // Update room in Supabase
+                const { error: updateError } = await supabase
+                    .from('rooms')
+                    .update({
+                        viewers: JSON.stringify(viewers),
+                        messages: JSON.stringify(messages),
+                        last_updated: Date.now()
+                    })
+                    .eq('id', roomId);
+
+                if (updateError) throw updateError;
+
+                state.isInRoom = true;
+                state.messages = messages;
+                state.viewers = viewers;
+                state.videoUrl = data.video_url || '';
+                state.videoState = JSON.parse(data.video_state || '{"playing":false,"currentTime":0}');
+                
+                // Subscribe to real-time updates
+                setupRealtimeSubscription(roomId);
+                
+                state.isLoading = false;
+                render();
+                
+                console.log('Joined room successfully:', roomId);
+            } catch (error) {
+                console.error('Error joining room:', error);
+                alert('Failed to join room: ' + error.message);
+                state.isLoading = false;
+                render();
+            }
         }
 
-        // Set video
-        function setVideo() {
+        // Setup real-time subscription
+        function setupRealtimeSubscription(roomId) {
+            if (state.subscription) {
+                state.subscription.unsubscribe();
+            }
+
+            state.subscription = supabase
+                .channel(`room:${roomId}`)
+                .on('postgres_changes', 
+                    { 
+                        event: '*', 
+                        schema: 'public', 
+                        table: 'rooms',
+                        filter: `id=eq.${roomId}`
+                    }, 
+                    (payload) => {
+                        console.log('Real-time update received:', payload);
+                        if (payload.new) {
+                            updateStateFromSupabase(payload.new);
+                        }
+                    }
+                )
+                .subscribe((status) => {
+                    console.log('Subscription status:', status);
+                });
+        }
+
+        function updateStateFromSupabase(data) {
+            const messages = JSON.parse(data.messages || '[]');
+            const viewers = JSON.parse(data.viewers || '[]');
+            const videoUrl = data.video_url || '';
+            const videoState = JSON.parse(data.video_state || '{}');
+
+            let changed = false;
+
+            if (videoUrl !== state.videoUrl) {
+                state.videoUrl = videoUrl;
+                changed = true;
+            }
+
+            if (messages.length !== state.messages.length) {
+                state.messages = messages;
+                changed = true;
+            }
+
+            if (JSON.stringify(viewers) !== JSON.stringify(state.viewers)) {
+                state.viewers = viewers;
+                changed = true;
+            }
+
+            if (videoState && videoState.playing !== undefined) {
+                syncVideo(videoState);
+            }
+
+            if (changed) {
+                render();
+            }
+        }
+
+        async function setVideo() {
             if (!state.videoUrl.trim()) {
                 alert('Please enter a video URL');
                 return;
             }
 
-            peerSync.broadcast({
-                type: 'video_url',
-                url: state.videoUrl
-            });
-
-            peerSync.broadcast({
-                type: 'system',
+            const messages = [...state.messages, {
                 sender: 'System',
                 text: `Video set by ${state.username}`,
-                time: new Date().toLocaleTimeString()
-            });
+                time: new Date().toLocaleTimeString(),
+                timestamp: Date.now()
+            }];
 
-            state.videoUrl = '';
-            render();
+            try {
+                const { error } = await supabase
+                    .from('rooms')
+                    .update({
+                        video_url: state.videoUrl,
+                        messages: JSON.stringify(messages),
+                        video_state: JSON.stringify({ playing: false, currentTime: 0 }),
+                        last_updated: Date.now()
+                    })
+                    .eq('id', state.currentRoom);
+
+                if (error) throw error;
+
+                state.messages = messages;
+                state.videoUrl = '';
+                render();
+            } catch (error) {
+                alert('Error setting video: ' + error.message);
+            }
         }
 
-        // Send message
-        function sendMessage() {
+        async function sendMessage() {
             if (!state.messageInput.trim()) return;
 
-            peerSync.broadcast({
-                type: 'chat',
+            const messages = [...state.messages, {
                 sender: state.username,
                 text: state.messageInput,
-                time: new Date().toLocaleTimeString()
-            });
+                time: new Date().toLocaleTimeString(),
+                timestamp: Date.now()
+            }];
 
-            state.messageInput = '';
-            render();
+            try {
+                const { error } = await supabase
+                    .from('rooms')
+                    .update({
+                        messages: JSON.stringify(messages),
+                        last_updated: Date.now()
+                    })
+                    .eq('id', state.currentRoom);
+
+                if (error) throw error;
+
+                state.messages = messages;
+                state.messageInput = '';
+                render();
+            } catch (error) {
+                alert('Error sending message: ' + error.message);
+            }
         }
 
         // Video sync
@@ -375,17 +357,28 @@
             videoElement.addEventListener('seeked', () => updateVideoState(!videoElement.paused));
         }
 
-        function updateVideoState(playing) {
+        async function updateVideoState(playing) {
             if (!videoElement) return;
 
-            peerSync.broadcast({
-                type: 'video_state',
-                state: {
-                    playing: playing,
-                    currentTime: videoElement.currentTime,
-                    timestamp: Date.now()
-                }
-            });
+            const videoState = {
+                playing: playing,
+                currentTime: videoElement.currentTime,
+                lastUpdated: Date.now()
+            };
+
+            try {
+                const { error } = await supabase
+                    .from('rooms')
+                    .update({
+                        video_state: JSON.stringify(videoState),
+                        last_updated: Date.now()
+                    })
+                    .eq('id', state.currentRoom);
+
+                if (error) throw error;
+            } catch (error) {
+                console.error('Error updating video state:', error);
+            }
         }
 
         function syncVideo(remoteState) {
@@ -411,8 +404,9 @@
         }
 
         function leaveRoom() {
-            if (peerSync) {
-                peerSync.leaveRoom();
+            if (state.subscription) {
+                state.subscription.unsubscribe();
+                console.log('Unsubscribed from room');
             }
 
             state.isInRoom = false;
@@ -420,7 +414,6 @@
             state.videoUrl = '';
             state.messages = [];
             state.viewers = [];
-            state.peerId = null;
             render();
         }
 
@@ -430,21 +423,23 @@
                 <div class="login-screen">
                     <div class="card login-card">
                         <h1>Watch2gether</h1>
-                        <p style="color: #c4b5fd; margin-bottom: 1rem;">Peer-to-Peer Sync</p>
+                        <p style="color: #c4b5fd; margin-bottom: 1rem;">Global Sync - Ready for Netherlands! 🇳🇱</p>
+                        
+                        ${state.isLoading ? '<div class="loading">⏳ Loading...</div>' : ''}
                         
                         <div style="margin-bottom: 1rem;">
                             <label>Your Username</label>
                             <input type="text" id="username" value="${state.username}" placeholder="Enter your name"/>
                         </div>
                         
-                        <button onclick="createRoom()">
+                        <button onclick="createRoom()" ${state.isLoading ? 'disabled' : ''}>
                             👥 Create New Room
                         </button>
                         
                         <div style="border-top: 1px solid rgba(255,255,255,0.2); margin: 1.5rem 0; padding-top: 1.5rem;">
                             <label>Join Existing Room</label>
                             <input type="text" id="roomId" value="${state.roomId}" placeholder="Enter Room ID" style="margin-bottom: 0.75rem;"/>
-                            <button onclick="joinRoom()" style="background: #4f46e5;">
+                            <button onclick="joinRoom()" style="background: #4f46e5;" ${state.isLoading ? 'disabled' : ''}>
                                 Join Room
                             </button>
                         </div>
@@ -479,9 +474,11 @@
             return `
                 <div class="container">
                     <div class="success">
-                        ✅ Connected! Share this room ID: <strong>${state.currentRoom}</strong>
-                        <br><small>Works across devices on the same network</small>
+                        ✅ Connected to Supabase! Share this room ID: <strong>${state.currentRoom}</strong>
+                        <br><small>Your friend in Netherlands can join this room! 🌍</small>
                     </div>
+                    
+                    ${state.isLoading ? '<div class="loading">⏳ Syncing...</div>' : ''}
                     
                     <div class="header">
                         <div>
@@ -509,7 +506,7 @@
                                 <h3>Add Video URL</h3>
                                 <div class="flex">
                                     <input type="text" id="videoUrl" value="${state.videoUrl}" placeholder="YouTube URL or direct video link"/>
-                                    <button onclick="setVideo()">Load</button>
+                                    <button onclick="setVideo()" ${state.isLoading ? 'disabled' : ''}>Load</button>
                                 </div>
                                 <div style="font-size: 0.75rem; color: #c4b5fd; margin-top: 0.5rem;">
                                     <div>Try: https://www.youtube.com/watch?v=dQw4w9WgXcQ</div>
@@ -533,7 +530,7 @@
                                         <div class="message">
                                             <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
                                                 <span style="font-weight: bold; color: ${msg.sender === 'System' ? '#fcd34d' : '#c4b5fd'}">
-                                                    ${msg.sender || 'System'}
+                                                    ${msg.sender}
                                                 </span>
                                                 <span style="color: rgba(255,255,255,0.5); font-size: 0.75rem;">${msg.time}</span>
                                             </div>
@@ -543,7 +540,7 @@
                                 </div>
                                 <div class="chat-input">
                                     <input type="text" id="messageInput" value="${state.messageInput}" placeholder="Type a message..."/>
-                                    <button onclick="sendMessage()">Send</button>
+                                    <button onclick="sendMessage()" ${state.isLoading ? 'disabled' : ''}>Send</button>
                                 </div>
                             </div>
                         </div>
@@ -592,6 +589,9 @@
         window.sendMessage = sendMessage;
         window.copyRoomId = copyRoomId;
         window.leaveRoom = leaveRoom;
+
+        // Test connection on load
+        console.log('Watch2gether loaded with Supabase URL:', SUPABASE_URL);
     </script>
 </body>
 </html>
