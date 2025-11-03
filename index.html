@@ -73,30 +73,67 @@
             return Math.random().toString(36).substring(2, 8).toUpperCase();
         }
 
-        // Get embed URL - FIXED FOR STREAMTAPE
+        // Get embed URL - IMPROVED STREAMTAPE DETECTION
         function getEmbedUrl(url) {
             if (!url) return '';
+            
+            console.log('Processing URL:', url);
             
             // YouTube handling
             const youtubeRegex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/;
             const youtubeMatch = url.match(youtubeRegex);
             if (youtubeMatch) {
-                return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
+                const embedUrl = `https://www.youtube.com/embed/${youtubeMatch[1]}`;
+                console.log('YouTube embed URL:', embedUrl);
+                return embedUrl;
             }
             
-            // Streamtape handling - FIXED
-            const streamtapeRegex = /streamtape\.com\/(?:e|v)\/([^\/\s]+)/;
-            const streamtapeMatch = url.match(streamtapeRegex);
-            if (streamtapeMatch) {
-                return `https://streamtape.com/e/${streamtapeMatch[1]}`;
+            // Streamtape handling - IMPROVED
+            if (url.includes('streamtape.com')) {
+                // Extract video ID from various Streamtape URL formats
+                let videoId = '';
+                
+                // Format 1: https://streamtape.com/v/videoId/filename.mp4
+                const streamtapeVRegex = /streamtape\.com\/v\/([^\/\s]+)/;
+                const vMatch = url.match(streamtapeVRegex);
+                if (vMatch) {
+                    videoId = vMatch[1];
+                }
+                
+                // Format 2: https://streamtape.com/e/videoId/
+                const streamtapeERegex = /streamtape\.com\/e\/([^\/\s]+)/;
+                const eMatch = url.match(streamtapeERegex);
+                if (eMatch) {
+                    videoId = eMatch[1];
+                }
+                
+                // Format 3: Direct Streamtape embed
+                if (!videoId && url.includes('/v/')) {
+                    const parts = url.split('/v/');
+                    if (parts[1]) {
+                        videoId = parts[1].split('/')[0];
+                    }
+                }
+                
+                if (videoId) {
+                    const embedUrl = `https://streamtape.com/e/${videoId}`;
+                    console.log('Streamtape embed URL:', embedUrl);
+                    return embedUrl;
+                }
+                
+                // If no specific pattern matches, try to use the URL as-is for iframe
+                console.log('Using original Streamtape URL as embed');
+                return url;
             }
             
             // Direct video links
             if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i)) {
+                console.log('Direct video URL');
                 return url;
             }
             
-            return url; // Return original URL if no specific handling
+            console.log('No specific embed handling, using original URL');
+            return url; // Return original URL for other cases
         }
 
         function isDirectVideo(url) {
@@ -108,7 +145,15 @@
         }
 
         function isValidVideoUrl(url) {
-            return isYouTube(url) || isStreamtape(url) || isDirectVideo(url);
+            // Allow any URL that contains video platforms or direct video files
+            return url && (
+                url.includes('youtube.com') || 
+                url.includes('youtu.be') ||
+                url.includes('streamtape.com') ||
+                url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i) ||
+                url.includes('vimeo.com') ||
+                url.includes('dailymotion.com')
+            );
         }
 
         function isYouTube(url) {
@@ -319,7 +364,7 @@
             }
 
             if (!isValidVideoUrl(state.videoUrl)) {
-                alert('Please enter a valid YouTube, Streamtape, or direct video URL');
+                alert('Please enter a valid video URL (YouTube, Streamtape, Vimeo, Dailymotion, or direct video file)');
                 return;
             }
 
@@ -487,6 +532,10 @@
             const isYouTubeVideo = isYouTube(state.videoUrl);
             const isStreamtapeVideo = isStreamtape(state.videoUrl);
 
+            console.log('Rendering with videoUrl:', state.videoUrl);
+            console.log('Embed URL:', embedUrl);
+            console.log('Is Streamtape:', isStreamtapeVideo);
+
             let videoElement = '';
             if (state.videoUrl) {
                 if (isDirect) {
@@ -546,6 +595,7 @@
                                 </div>
                                 ${isDirect ? '<div style="color: #10b981; font-size: 0.75rem; margin-top: 0.5rem;">🎯 Real-time sync enabled</div>' : 
                                   isStreamtapeVideo ? '<div style="color: #f59e0b; font-size: 0.75rem; margin-top: 0.5rem;">📺 Streamtape - Limited sync</div>' :
+                                  isYouTubeVideo ? '<div style="color: #6b7280; font-size: 0.75rem; margin-top: 0.5rem;">📹 YouTube - Limited sync</div>' :
                                   '<div style="color: #6b7280; font-size: 0.75rem; margin-top: 0.5rem;">🔗 Embedded video</div>'}
                             </div>
                             
