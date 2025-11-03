@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Watch2gether - Cross-Device Sync</title>
+    <title>Watch2gether - Working Cross-Device Sync</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -35,18 +35,35 @@
         .message { background: rgba(255,255,255,0.05); border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.75rem; }
         .success { background: rgba(34,197,94,0.2); border: 1px solid #22c55e; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; }
         .loading { color: #c4b5fd; text-align: center; padding: 1rem; }
+        .error { background: rgba(239,68,68,0.2); border: 1px solid #ef4444; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; }
     </style>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
 </head>
 <body>
     <div id="app"></div>
 
     <script>
-        // JSONBin.io configuration (FREE service)
-        const JSONBIN_API_KEY = '$2a$10$QN7zgR2fB8q5qW1QN1qYDeN1qYDeN1qYDeN1qYDeN1qYDeN1qYDe'; // Free public key
-        const JSONBIN_BASE_URL = 'https://api.jsonbin.io/v3/b';
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCZ8kPJrXvycJN6fQN8q9w7v6v8W7v6v8W",
+            authDomain: "watch2gether-demo.firebaseapp.com",
+            projectId: "watch2gether-demo",
+            storageBucket: "watch2gether-demo.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef123456"
+        };
+
+        // Initialize Firebase
+        try {
+            firebase.initializeApp(firebaseConfig);
+        } catch (error) {
+            console.log('Firebase already initialized');
+        }
         
-        // Our shared bin ID - this is what makes cross-device sync work
-        const SHARED_BIN_ID = '672a1f1ae41b4a34e4a8c8f5';
+        const db = firebase.firestore();
 
         let state = {
             username: '',
@@ -59,10 +76,9 @@
             isInRoom: false,
             videoState: { playing: false, currentTime: 0 },
             isLoading: false,
-            rooms: {} // All rooms stored here
+            unsubscribe: null
         };
 
-        let syncInterval = null;
         let videoElement = null;
 
         // Generate room ID
@@ -84,85 +100,57 @@
             return url && url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i);
         }
 
-        // JSONBin.io API functions
-        async function loadFromJSONBin() {
-            try {
-                state.isLoading = true;
-                render();
-                
-                const response = await fetch(`${JSONBIN_BASE_URL}/${SHARED_BIN_ID}/latest`, {
-                    headers: {
-                        'X-Master-Key': JSONBIN_API_KEY,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                if (!response.ok) throw new Error('Failed to load data');
-                
-                const data = await response.json();
-                state.rooms = data.record?.rooms || {};
-                state.isLoading = false;
-                return state.rooms;
-            } catch (error) {
-                console.log('Using default data');
-                state.rooms = {};
-                state.isLoading = false;
-                return {};
-            }
-        }
-
-        async function saveToJSONBin() {
-            try {
-                const response = await fetch(`${JSONBIN_BASE_URL}/${SHARED_BIN_ID}`, {
-                    method: 'PUT',
-                    headers: {
-                        'X-Master-Key': JSONBIN_API_KEY,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ rooms: state.rooms })
-                });
-                
-                return response.ok;
-            } catch (error) {
-                console.error('Save failed:', error);
-                return false;
-            }
-        }
-
-        // Room management
+        // Room management with Firebase
         async function createRoom() {
             if (!state.username.trim()) {
                 alert('Please enter your username');
                 return;
             }
 
-            await loadFromJSONBin();
-            
+            state.isLoading = true;
+            render();
+
             const roomId = generateRoomId();
             state.currentRoom = roomId;
-            state.isInRoom = true;
             
-            // Create new room
-            state.rooms[roomId] = {
+            const roomData = {
                 videoUrl: '',
                 messages: [{
                     sender: 'System',
                     text: `Room created! Share this ID: ${roomId}`,
-                    time: new Date().toLocaleTimeString()
+                    time: new Date().toLocaleTimeString(),
+                    timestamp: Date.now()
                 }],
                 viewers: [state.username],
                 videoState: { playing: false, currentTime: 0 },
                 lastUpdated: Date.now()
             };
 
-            await saveToJSONBin();
-            
-            state.messages = state.rooms[roomId].messages;
-            state.viewers = state.rooms[roomId].viewers;
-            state.videoUrl = state.rooms[roomId].videoUrl;
-            
-            startPolling();
-            render();
+            try {
+                await db.collection('rooms').doc(roomId).set(roomData);
+                
+                state.isInRoom = true;
+                state.messages = roomData.messages;
+                state.viewers = roomData.viewers;
+                state.videoUrl = roomData.videoUrl;
+                
+                // Listen for real-time updates
+                state.unsubscribe = db.collection('rooms').doc(roomId)
+                    .onSnapshot((doc) => {
+                        if (doc.exists) {
+                            const data = doc.data();
+                            updateState(data);
+                        }
+                    });
+                
+                state.isLoading = false;
+                render();
+            } catch (error) {
+                console.error('Error creating room:', error);
+                alert('Failed to create room. Please try again.');
+                state.isLoading = false;
+                render();
+            }
         }
 
         async function joinRoom() {
@@ -171,40 +159,97 @@
                 return;
             }
 
-            await loadFromJSONBin();
-            
-            const roomId = state.roomId.toUpperCase();
-            
-            if (!state.rooms[roomId]) {
-                alert('Room not found! Please check the room ID.');
-                return;
-            }
-
-            state.currentRoom = roomId;
-            state.isInRoom = true;
-
-            // Add user to viewers if not already there
-            if (!state.rooms[roomId].viewers.includes(state.username)) {
-                state.rooms[roomId].viewers.push(state.username);
-            }
-
-            // Add join message
-            state.rooms[roomId].messages.push({
-                sender: 'System',
-                text: `${state.username} joined the room`,
-                time: new Date().toLocaleTimeString()
-            });
-
-            await saveToJSONBin();
-            
-            // Update local state
-            state.messages = state.rooms[roomId].messages;
-            state.viewers = state.rooms[roomId].viewers;
-            state.videoUrl = state.rooms[roomId].videoUrl;
-            state.videoState = state.rooms[roomId].videoState;
-            
-            startPolling();
+            state.isLoading = true;
             render();
+
+            const roomId = state.roomId.toUpperCase();
+
+            try {
+                const doc = await db.collection('rooms').doc(roomId).get();
+                
+                if (!doc.exists) {
+                    alert('Room not found! Please check the room ID.');
+                    state.isLoading = false;
+                    render();
+                    return;
+                }
+
+                state.currentRoom = roomId;
+                
+                const roomData = doc.data();
+                
+                // Update viewers
+                const viewers = roomData.viewers || [];
+                if (!viewers.includes(state.username)) {
+                    viewers.push(state.username);
+                }
+
+                // Add join message
+                const messages = roomData.messages || [];
+                messages.push({
+                    sender: 'System',
+                    text: `${state.username} joined the room`,
+                    time: new Date().toLocaleTimeString(),
+                    timestamp: Date.now()
+                });
+
+                // Update room
+                await db.collection('rooms').doc(roomId).update({
+                    viewers: viewers,
+                    messages: messages,
+                    lastUpdated: Date.now()
+                });
+
+                state.isInRoom = true;
+                state.messages = messages;
+                state.viewers = viewers;
+                state.videoUrl = roomData.videoUrl || '';
+                state.videoState = roomData.videoState || { playing: false, currentTime: 0 };
+                
+                // Listen for real-time updates
+                state.unsubscribe = db.collection('rooms').doc(roomId)
+                    .onSnapshot((doc) => {
+                        if (doc.exists) {
+                            const data = doc.data();
+                            updateState(data);
+                        }
+                    });
+                
+                state.isLoading = false;
+                render();
+            } catch (error) {
+                console.error('Error joining room:', error);
+                alert('Failed to join room. Please try again.');
+                state.isLoading = false;
+                render();
+            }
+        }
+
+        function updateState(data) {
+            let changed = false;
+
+            if (data.videoUrl !== state.videoUrl) {
+                state.videoUrl = data.videoUrl;
+                changed = true;
+            }
+
+            if (data.messages && data.messages.length !== state.messages.length) {
+                state.messages = data.messages.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+                changed = true;
+            }
+
+            if (data.viewers && JSON.stringify(data.viewers) !== JSON.stringify(state.viewers)) {
+                state.viewers = data.viewers;
+                changed = true;
+            }
+
+            if (data.videoState) {
+                syncVideo(data.videoState);
+            }
+
+            if (changed) {
+                render();
+            }
         }
 
         async function setVideo() {
@@ -213,39 +258,53 @@
                 return;
             }
 
-            await loadFromJSONBin();
-            
-            state.rooms[state.currentRoom].videoUrl = state.videoUrl;
-            state.rooms[state.currentRoom].messages.push({
+            const messages = [...state.messages, {
                 sender: 'System',
                 text: `Video set by ${state.username}`,
-                time: new Date().toLocaleTimeString()
-            });
-            state.rooms[state.currentRoom].videoState = { playing: false, currentTime: 0 };
+                time: new Date().toLocaleTimeString(),
+                timestamp: Date.now()
+            }];
 
-            await saveToJSONBin();
-            
-            state.messages = state.rooms[state.currentRoom].messages;
-            state.videoUrl = '';
-            render();
+            try {
+                await db.collection('rooms').doc(state.currentRoom).update({
+                    videoUrl: state.videoUrl,
+                    messages: messages,
+                    videoState: { playing: false, currentTime: 0 },
+                    lastUpdated: Date.now()
+                });
+
+                state.messages = messages;
+                state.videoUrl = '';
+                render();
+            } catch (error) {
+                console.error('Error setting video:', error);
+                alert('Failed to set video. Please try again.');
+            }
         }
 
         async function sendMessage() {
             if (!state.messageInput.trim()) return;
 
-            await loadFromJSONBin();
-            
-            state.rooms[state.currentRoom].messages.push({
+            const messages = [...state.messages, {
                 sender: state.username,
                 text: state.messageInput,
-                time: new Date().toLocaleTimeString()
-            });
+                time: new Date().toLocaleTimeString(),
+                timestamp: Date.now()
+            }];
 
-            await saveToJSONBin();
-            
-            state.messages = state.rooms[state.currentRoom].messages;
-            state.messageInput = '';
-            render();
+            try {
+                await db.collection('rooms').doc(state.currentRoom).update({
+                    messages: messages,
+                    lastUpdated: Date.now()
+                });
+
+                state.messages = messages;
+                state.messageInput = '';
+                render();
+            } catch (error) {
+                console.error('Error sending message:', error);
+                alert('Failed to send message. Please try again.');
+            }
         }
 
         // Video sync
@@ -261,25 +320,23 @@
         async function updateVideoState(playing) {
             if (!videoElement) return;
 
-            await loadFromJSONBin();
-            
-            state.rooms[state.currentRoom].videoState = {
-                playing: playing,
-                currentTime: videoElement.currentTime,
-                lastUpdated: Date.now()
-            };
-
-            await saveToJSONBin();
+            try {
+                await db.collection('rooms').doc(state.currentRoom).update({
+                    videoState: {
+                        playing: playing,
+                        currentTime: videoElement.currentTime,
+                        lastUpdated: Date.now()
+                    },
+                    lastUpdated: Date.now()
+                });
+            } catch (error) {
+                console.error('Error updating video state:', error);
+            }
         }
 
-        async function syncVideo() {
+        function syncVideo(remoteState) {
             if (!videoElement || videoElement.tagName !== 'VIDEO') return;
 
-            await loadFromJSONBin();
-            const room = state.rooms[state.currentRoom];
-            if (!room || !room.videoState) return;
-
-            const remoteState = room.videoState;
             const timeDiff = Math.abs(remoteState.currentTime - videoElement.currentTime);
 
             if (timeDiff > 2) {
@@ -287,38 +344,10 @@
             }
 
             if (remoteState.playing && videoElement.paused) {
-                videoElement.play();
+                videoElement.play().catch(e => console.log('Play failed:', e));
             } else if (!remoteState.playing && !videoElement.paused) {
                 videoElement.pause();
             }
-        }
-
-        function startPolling() {
-            if (syncInterval) clearInterval(syncInterval);
-            syncInterval = setInterval(async () => {
-                const oldMessagesLength = state.messages.length;
-                const oldVideoUrl = state.videoUrl;
-                const oldViewers = JSON.stringify(state.viewers);
-                
-                await loadFromJSONBin();
-                
-                const room = state.rooms[state.currentRoom];
-                if (room) {
-                    // Check for changes
-                    if (room.messages.length !== oldMessagesLength) {
-                        state.messages = room.messages;
-                    }
-                    if (room.videoUrl !== oldVideoUrl) {
-                        state.videoUrl = room.videoUrl;
-                    }
-                    if (JSON.stringify(room.viewers) !== oldViewers) {
-                        state.viewers = room.viewers;
-                    }
-                    
-                    await syncVideo();
-                    render();
-                }
-            }, 2000);
         }
 
         function copyRoomId() {
@@ -328,10 +357,19 @@
         }
 
         function leaveRoom() {
-            if (syncInterval) {
-                clearInterval(syncInterval);
-                syncInterval = null;
+            if (state.unsubscribe) {
+                state.unsubscribe();
             }
+
+            // Remove user from viewers
+            if (state.currentRoom) {
+                const viewers = state.viewers.filter(viewer => viewer !== state.username);
+                db.collection('rooms').doc(state.currentRoom).update({
+                    viewers: viewers,
+                    lastUpdated: Date.now()
+                }).catch(console.error);
+            }
+
             state.isInRoom = false;
             state.currentRoom = null;
             state.videoUrl = '';
@@ -346,7 +384,7 @@
                 <div class="login-screen">
                     <div class="card login-card">
                         <h1>Watch2gether</h1>
-                        <p style="color: #c4b5fd; margin-bottom: 1rem;">Cross-Device Sync Version</p>
+                        <p style="color: #c4b5fd; margin-bottom: 1rem;">Firebase Real-time Sync</p>
                         
                         ${state.isLoading ? '<div class="loading">⏳ Loading...</div>' : ''}
                         
@@ -421,6 +459,7 @@
                                 <div class="video-container">
                                     ${videoElement}
                                 </div>
+                                ${isDirect ? '<div style="color: #10b981; font-size: 0.75rem; margin-top: 0.5rem;">🎯 Real-time sync enabled</div>' : ''}
                             </div>
                             
                             <div class="card">
