@@ -73,18 +73,46 @@
             return Math.random().toString(36).substring(2, 8).toUpperCase();
         }
 
-        // Get embed URL
+        // Get embed URL - FIXED FOR STREAMTAPE
         function getEmbedUrl(url) {
             if (!url) return '';
+            
+            // YouTube handling
             const youtubeRegex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/;
             const youtubeMatch = url.match(youtubeRegex);
-            if (youtubeMatch) return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
-            if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i)) return url;
-            return url;
+            if (youtubeMatch) {
+                return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
+            }
+            
+            // Streamtape handling - FIXED
+            const streamtapeRegex = /streamtape\.com\/(?:e|v)\/([^\/\s]+)/;
+            const streamtapeMatch = url.match(streamtapeRegex);
+            if (streamtapeMatch) {
+                return `https://streamtape.com/e/${streamtapeMatch[1]}`;
+            }
+            
+            // Direct video links
+            if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i)) {
+                return url;
+            }
+            
+            return url; // Return original URL if no specific handling
         }
 
         function isDirectVideo(url) {
             return url && url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i);
+        }
+
+        function isStreamtape(url) {
+            return url && url.includes('streamtape.com');
+        }
+
+        function isValidVideoUrl(url) {
+            return isYouTube(url) || isStreamtape(url) || isDirectVideo(url);
+        }
+
+        function isYouTube(url) {
+            return url && (url.includes('youtube.com') || url.includes('youtu.be'));
         }
 
         // Room management with Supabase
@@ -290,6 +318,11 @@
                 return;
             }
 
+            if (!isValidVideoUrl(state.videoUrl)) {
+                alert('Please enter a valid YouTube, Streamtape, or direct video URL');
+                return;
+            }
+
             const messages = [...state.messages, {
                 sender: 'System',
                 text: `Video set by ${state.username}`,
@@ -451,13 +484,25 @@
         function renderMainScreen() {
             const embedUrl = getEmbedUrl(state.videoUrl);
             const isDirect = isDirectVideo(state.videoUrl);
+            const isYouTubeVideo = isYouTube(state.videoUrl);
+            const isStreamtapeVideo = isStreamtape(state.videoUrl);
 
             let videoElement = '';
             if (state.videoUrl) {
                 if (isDirect) {
                     videoElement = `<video id="videoPlayer" controls src="${state.videoUrl}"></video>`;
+                } else if (embedUrl) {
+                    videoElement = `<iframe id="videoPlayer" src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
                 } else {
-                    videoElement = `<iframe id="videoPlayer" src="${embedUrl}" allowfullscreen></iframe>`;
+                    videoElement = `
+                        <div class="video-placeholder">
+                            <div>
+                                <p style="font-size: 3rem; margin-bottom: 1rem;">❌</p>
+                                <p>Invalid video URL</p>
+                                <p>Please use YouTube, Streamtape, or direct video links</p>
+                            </div>
+                        </div>
+                    `;
                 }
             } else {
                 videoElement = `
@@ -465,7 +510,7 @@
                         <div>
                             <p style="font-size: 3rem; margin-bottom: 1rem;">▶️</p>
                             <p>No video loaded</p>
-                            <p>Add a YouTube URL or direct video link</p>
+                            <p>Add a YouTube, Streamtape, or direct video link</p>
                         </div>
                     </div>
                 `;
@@ -499,18 +544,21 @@
                                 <div class="video-container">
                                     ${videoElement}
                                 </div>
-                                ${isDirect ? '<div style="color: #10b981; font-size: 0.75rem; margin-top: 0.5rem;">🎯 Real-time sync enabled</div>' : ''}
+                                ${isDirect ? '<div style="color: #10b981; font-size: 0.75rem; margin-top: 0.5rem;">🎯 Real-time sync enabled</div>' : 
+                                  isStreamtapeVideo ? '<div style="color: #f59e0b; font-size: 0.75rem; margin-top: 0.5rem;">📺 Streamtape - Limited sync</div>' :
+                                  '<div style="color: #6b7280; font-size: 0.75rem; margin-top: 0.5rem;">🔗 Embedded video</div>'}
                             </div>
                             
                             <div class="card">
                                 <h3>Add Video URL</h3>
                                 <div class="flex">
-                                    <input type="text" id="videoUrl" value="${state.videoUrl}" placeholder="YouTube URL or direct video link"/>
+                                    <input type="text" id="videoUrl" value="${state.videoUrl}" placeholder="YouTube, Streamtape, or direct video link"/>
                                     <button onclick="setVideo()" ${state.isLoading ? 'disabled' : ''}>Load</button>
                                 </div>
                                 <div style="font-size: 0.75rem; color: #c4b5fd; margin-top: 0.5rem;">
-                                    <div>Try: https://www.youtube.com/watch?v=dQw4w9WgXcQ</div>
-                                    <div>Or: https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4</div>
+                                    <div>YouTube: https://www.youtube.com/watch?v=dQw4w9WgXcQ</div>
+                                    <div>Streamtape: https://streamtape.com/v/vY4O1BRglaI464z/</div>
+                                    <div>Direct: https://example.com/video.mp4</div>
                                 </div>
                             </div>
                             
