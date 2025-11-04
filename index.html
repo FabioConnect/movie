@@ -77,6 +77,15 @@
             color: #10b981;
             margin-top: 0.5rem;
         }
+        .video-controls {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        .video-controls button {
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+        }
     </style>
     
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -94,31 +103,32 @@
             username: '',
             roomId: '',
             currentRoom: null,
-            currentVideoUrl: '',  // The video being displayed
-            videoUrlInput: '',    // The input field value
+            currentVideoUrl: '',
+            videoUrlInput: '',
             messages: [],
             messageInput: '',
             viewers: [],
             isInRoom: false,
             videoState: { playing: false, currentTime: 0 },
             isLoading: false,
-            subscription: null
+            subscription: null,
+            lastVideoStateUpdate: 0
         };
 
         let videoElement = null;
+        let isUpdatingFromRemote = false;
 
         function generateRoomId() {
             return Math.random().toString(36).substring(2, 8).toUpperCase();
         }
 
-        // FIXED: Better URL parsing for Streamtape and YouTube
         function getEmbedUrl(url) {
             if (!url) return '';
             
             url = url.trim();
             console.log('Processing URL:', url);
             
-            // YouTube - multiple formats
+            // YouTube
             const youtubePatterns = [
                 /(?:youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/,
                 /(?:youtu\.be\/)([a-zA-Z0-9_-]{11})/,
@@ -135,23 +145,21 @@
                 }
             }
             
-            // Streamtape - multiple formats
+            // Streamtape - Extract video ID and use direct link
             if (url.includes('streamtape.com') || url.includes('streamtape.net')) {
-                let videoId = '';
-                
-                // Format 1: /v/videoId or /e/videoId
+                // For Streamtape, we'll use the direct video link to avoid ads
+                // Format: /v/videoId becomes a direct link
                 const streamPattern = /(?:streamtape\.(?:com|net))\/([ve])\/([a-zA-Z0-9]+)/;
                 const match = url.match(streamPattern);
                 if (match) {
-                    videoId = match[2];
-                    const embedUrl = `https://streamtape.com/e/${videoId}`;
+                    const videoId = match[2];
+                    // Using /e/ for embed with minimal ads, but note: Streamtape always has some ads
+                    const embedUrl = `https://streamtape.com/e/${videoId}/`;
                     console.log('Streamtape embed:', embedUrl);
                     return embedUrl;
                 }
                 
-                // If already an embed URL, use as is
                 if (url.includes('/e/')) {
-                    console.log('Streamtape embed (direct):', url);
                     return url;
                 }
             }
@@ -162,7 +170,6 @@
                 return url;
             }
             
-            // If nothing matched, return original
             console.log('Using original URL:', url);
             return url;
         }
@@ -197,7 +204,7 @@
                     timestamp: Date.now()
                 }]),
                 viewers: JSON.stringify([state.username]),
-                video_state: JSON.stringify({ playing: false, currentTime: 0 }),
+                video_state: JSON.stringify({ playing: false, currentTime: 0, timestamp: Date.now() }),
                 last_updated: Date.now()
             };
 
@@ -228,7 +235,6 @@
                 console.error('Error creating room:', error);
                 let errorMsg = error.message || JSON.stringify(error);
                 
-                // Check for common issues
                 if (errorMsg.includes('relation') || errorMsg.includes('does not exist')) {
                     errorMsg = 'Database table "rooms" not found. Please create it in Supabase first!';
                 } else if (errorMsg.includes('permission') || errorMsg.includes('RLS')) {
@@ -330,13 +336,15 @@
                         filter: `id=eq.${roomId}`
                     }, 
                     (payload) => {
-                        console.log('Real-time update:', payload);
+                        console.log('Real-time update received:', payload);
                         if (payload.new) {
                             updateStateFromSupabase(payload.new);
                         }
                     }
                 )
-                .subscribe();
+                .subscribe((status) => {
+                    console.log('Realtime subscription status:', status);
+                });
         }
 
         function updateStateFromSupabase(data) {
@@ -347,22 +355,29 @@
 
             let changed = false;
 
+            // Update video URL if changed
             if (videoUrl !== state.currentVideoUrl) {
+                console.log('Video URL changed:', videoUrl);
                 state.currentVideoUrl = videoUrl;
                 changed = true;
             }
 
+            // Update messages
             if (messages.length !== state.messages.length) {
                 state.messages = messages;
                 changed = true;
             }
 
+            // Update viewers
             if (JSON.stringify(viewers) !== JSON.stringify(state.viewers)) {
                 state.viewers = viewers;
                 changed = true;
             }
 
-            if (videoState && videoState.playing !== undefined) {
+            // Sync video playback state
+            if (videoState && videoState.timestamp && videoState.timestamp > state.lastVideoStateUpdate) {
+                console.log('Syncing video state:', videoState);
+                state.lastVideoStateUpdate = videoState.timestamp;
                 syncVideo(videoState);
             }
 
@@ -392,17 +407,16 @@
                     .update({
                         video_url: newVideoUrl,
                         messages: JSON.stringify(messages),
-                        video_state: JSON.stringify({ playing: false, currentTime: 0 }),
+                        video_state: JSON.stringify({ playing: false, currentTime: 0, timestamp: Date.now() }),
                         last_updated: Date.now()
                     })
                     .eq('id', state.currentRoom);
 
                 if (error) throw error;
 
-                // Update local state immediately
                 state.messages = messages;
                 state.currentVideoUrl = newVideoUrl;
-                state.videoUrlInput = '';  // Clear the input
+                state.videoUrlInput = '';
                 render();
             } catch (error) {
                 alert('Error setting video: ' + error.message);
@@ -438,39 +452,96 @@
             }
         }
 
+        // Manual play/pause controls for iframes
+        async function playVideo() {
+            await updateVideoState(true, 0);
+            const iframe = document.getElementById('videoPlayer');
+            if (iframe && iframe.tagName === 'IFRAME') {
+                // For YouTube
+                if (state.currentVideoUrl.includes('youtube')) {
+                    iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+                }
+            }
+            const video = document.getElementById('videoPlayer');
+            if (video && video.tagName === 'VIDEO') {
+                video.play();
+            }
+        }
+
+        async function pauseVideo() {
+            const video = document.getElementById('videoPlayer');
+            let currentTime = 0;
+            if (video && video.tagName === 'VIDEO') {
+                currentTime = video.currentTime;
+                video.pause();
+            }
+            await updateVideoState(false, currentTime);
+            
+            const iframe = document.getElementById('videoPlayer');
+            if (iframe && iframe.tagName === 'IFRAME') {
+                // For YouTube
+                if (state.currentVideoUrl.includes('youtube')) {
+                    iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+                }
+            }
+        }
+
         function setupVideoSync() {
             videoElement = document.getElementById('videoPlayer');
             if (!videoElement || videoElement.tagName !== 'VIDEO') return;
 
-            videoElement.addEventListener('play', () => updateVideoState(true));
-            videoElement.addEventListener('pause', () => updateVideoState(false));
-            videoElement.addEventListener('seeked', () => updateVideoState(!videoElement.paused));
+            videoElement.addEventListener('play', () => {
+                if (!isUpdatingFromRemote) {
+                    updateVideoState(true, videoElement.currentTime);
+                }
+            });
+            
+            videoElement.addEventListener('pause', () => {
+                if (!isUpdatingFromRemote) {
+                    updateVideoState(false, videoElement.currentTime);
+                }
+            });
+            
+            videoElement.addEventListener('seeked', () => {
+                if (!isUpdatingFromRemote) {
+                    updateVideoState(!videoElement.paused, videoElement.currentTime);
+                }
+            });
         }
 
-        async function updateVideoState(playing) {
-            if (!videoElement) return;
-
+        async function updateVideoState(playing, currentTime) {
             const videoState = {
                 playing: playing,
-                currentTime: videoElement.currentTime,
-                lastUpdated: Date.now()
+                currentTime: currentTime || 0,
+                timestamp: Date.now()
             };
 
+            console.log('Updating video state:', videoState);
+
             try {
-                await supabase
+                const { error } = await supabase
                     .from('rooms')
                     .update({
                         video_state: JSON.stringify(videoState),
                         last_updated: Date.now()
                     })
                     .eq('id', state.currentRoom);
+
+                if (error) throw error;
             } catch (error) {
                 console.error('Error updating video state:', error);
             }
         }
 
         function syncVideo(remoteState) {
-            if (!videoElement || videoElement.tagName !== 'VIDEO') return;
+            videoElement = document.getElementById('videoPlayer');
+            
+            if (!videoElement || videoElement.tagName !== 'VIDEO') {
+                console.log('Cannot sync - not a video element');
+                return;
+            }
+
+            isUpdatingFromRemote = true;
 
             const timeDiff = Math.abs(remoteState.currentTime - videoElement.currentTime);
 
@@ -479,10 +550,16 @@
             }
 
             if (remoteState.playing && videoElement.paused) {
+                console.log('Playing video');
                 videoElement.play().catch(e => console.log('Play failed:', e));
             } else if (!remoteState.playing && !videoElement.paused) {
+                console.log('Pausing video');
                 videoElement.pause();
             }
+
+            setTimeout(() => {
+                isUpdatingFromRemote = false;
+            }, 100);
         }
 
         function copyRoomId() {
@@ -497,7 +574,8 @@
             }
             state.isInRoom = false;
             state.currentRoom = null;
-            state.videoUrl = '';
+            state.currentVideoUrl = '';
+            state.videoUrlInput = '';
             state.messages = [];
             state.viewers = [];
             render();
@@ -537,16 +615,16 @@
             const embedUrl = getEmbedUrl(state.currentVideoUrl);
             const videoType = getVideoType(state.currentVideoUrl);
 
-            console.log('Video URL:', state.currentVideoUrl);
+            console.log('Rendering - Video URL:', state.currentVideoUrl);
             console.log('Embed URL:', embedUrl);
             console.log('Video type:', videoType);
 
             let videoElement = '';
             if (state.currentVideoUrl) {
                 if (videoType === 'direct') {
-                    videoElement = `<video id="videoPlayer" controls src="${embedUrl}"></video>`;
+                    videoElement = `<video id="videoPlayer" controls controlsList="nodownload" src="${embedUrl}"></video>`;
                 } else if (videoType === 'youtube' || videoType === 'streamtape' || videoType === 'iframe') {
-                    videoElement = `<iframe id="videoPlayer" src="${embedUrl}" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+                    videoElement = `<iframe id="videoPlayer" src="${embedUrl}" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen scrolling="no"></iframe>`;
                 } else {
                     videoElement = `
                         <div class="video-placeholder">
@@ -569,6 +647,8 @@
                     </div>
                 `;
             }
+
+            const showControls = state.currentVideoUrl && (videoType === 'direct' || videoType === 'streamtape' || videoType === 'youtube');
 
             return `
                 <div class="container">
@@ -595,7 +675,14 @@
                                     ${videoElement}
                                 </div>
                                 ${videoType === 'direct' ? '<div class="sync-status">🎯 Real-time sync enabled</div>' : 
-                                  '<div class="sync-status">⚠️ Sync limited for embedded videos</div>'}
+                                  '<div class="sync-status">⚠️ Limited sync for embedded videos. Use controls below.</div>'}
+                                ${showControls && videoType !== 'direct' ? `
+                                    <div class="video-controls">
+                                        <button onclick="playVideo()" class="btn-small">▶️ Play for Everyone</button>
+                                        <button onclick="pauseVideo()" class="btn-small">⏸️ Pause for Everyone</button>
+                                    </div>
+                                ` : ''}
+                                ${videoType === 'streamtape' ? '<p class="info-text">⚠️ Note: Streamtape may show ads. Use fullscreen button in the video player.</p>' : ''}
                             </div>
                             
                             <div class="section-card">
@@ -683,6 +770,8 @@
         window.sendMessage = sendMessage;
         window.copyRoomId = copyRoomId;
         window.leaveRoom = leaveRoom;
+        window.playVideo = playVideo;
+        window.pauseVideo = pauseVideo;
     </script>
 </body>
 </html>
