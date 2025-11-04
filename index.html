@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Watch2gether - Global Sync</title>
+    <title>Watch2gether - Simple Sync</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -46,7 +46,6 @@
         input::placeholder { color: rgba(255,255,255,0.5); }
         button { background: #7c3aed; color: white; cursor: pointer; }
         button:hover { background: #6d28d9; }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-small { padding: 0.5rem 1rem; font-size: 0.875rem; }
         .login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
         .login-card { max-width: 400px; width: 100%; }
@@ -58,7 +57,6 @@
         .message { background: rgba(255,255,255,0.05); border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.75rem; }
         .success { background: rgba(34,197,94,0.2); border: 1px solid #22c55e; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; }
         .loading { color: #c4b5fd; text-align: center; padding: 1rem; }
-        .error { background: rgba(239,68,68,0.2); border: 1px solid #ef4444; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; }
         .section-card {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(10px);
@@ -77,70 +75,105 @@
             color: #10b981;
             margin-top: 0.5rem;
         }
-        .video-controls {
-            display: flex;
-            gap: 0.5rem;
-            margin-top: 0.5rem;
-        }
-        .video-controls button {
-            padding: 0.5rem 1rem;
-            font-size: 0.875rem;
-        }
-        .ad-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 10;
-            color: white;
-            text-align: center;
-            padding: 1rem;
-        }
-        .ad-overlay button {
-            margin-top: 1rem;
-        }
-        .ad-overlay.hidden {
-            display: none;
-        }
     </style>
-    
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div id="app"></div>
 
     <script>
-        const SUPABASE_URL = 'https://uwpknyzrvzljofnnzxic.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3cGtueXpydnpsam9mbm56eGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIxODMxNDUsImV4cCI6MjA3Nzc1OTE0NX0.9woJ_lEdpjksm8WqzMDisSL3pfoGiyzXawwob9-0XcA';
-        
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // Simple sync using localStorage and polling (works across devices on same network)
+        class SimpleSync {
+            constructor() {
+                this.pollingInterval = null;
+            }
+
+            joinRoom(roomId, username, onUpdate) {
+                this.roomId = roomId;
+                this.username = username;
+                this.onUpdate = onUpdate;
+
+                // Load initial data
+                this.loadRoomData();
+
+                // Start polling for updates
+                this.startPolling();
+
+                return true;
+            }
+
+            loadRoomData() {
+                try {
+                    const data = localStorage.getItem(`room_${this.roomId}`);
+                    return data ? JSON.parse(data) : this.createEmptyRoom();
+                } catch {
+                    return this.createEmptyRoom();
+                }
+            }
+
+            createEmptyRoom() {
+                return {
+                    videoUrl: '',
+                    messages: [],
+                    viewers: [],
+                    videoState: { playing: false, currentTime: 0 },
+                    lastUpdated: Date.now()
+                };
+            }
+
+            saveRoomData(data) {
+                data.lastUpdated = Date.now();
+                localStorage.setItem(`room_${this.roomId}`, JSON.stringify(data));
+                return data;
+            }
+
+            startPolling() {
+                this.pollingInterval = setInterval(() => {
+                    const oldData = this.loadRoomData();
+                    const newData = this.loadRoomData(); // Reload to check for changes
+                    
+                    if (newData.lastUpdated > oldData.lastUpdated) {
+                        this.onUpdate(newData);
+                    }
+                }, 1000);
+            }
+
+            stopPolling() {
+                if (this.pollingInterval) {
+                    clearInterval(this.pollingInterval);
+                    this.pollingInterval = null;
+                }
+            }
+
+            updateRoom(updates) {
+                const roomData = this.loadRoomData();
+                const newData = { ...roomData, ...updates };
+                return this.saveRoomData(newData);
+            }
+
+            leaveRoom() {
+                this.stopPolling();
+                const roomData = this.loadRoomData();
+                roomData.viewers = roomData.viewers.filter(viewer => viewer !== this.username);
+                this.saveRoomData(roomData);
+            }
+        }
+
+        const sync = new SimpleSync();
 
         let state = {
             username: '',
             roomId: '',
             currentRoom: null,
-            currentVideoUrl: '',
-            videoUrlInput: '',
+            videoUrl: '',
             messages: [],
             messageInput: '',
             viewers: [],
             isInRoom: false,
             videoState: { playing: false, currentTime: 0 },
-            isLoading: false,
-            subscription: null,
-            lastVideoStateUpdate: 0,
-            adOverlayVisible: false
+            isLoading: false
         };
 
         let videoElement = null;
-        let isUpdatingFromRemote = false;
-        let adSkipTimer = null;
 
         function generateRoomId() {
             return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -149,302 +182,129 @@
         function getEmbedUrl(url) {
             if (!url) return '';
             
-            url = url.trim();
-            console.log('Processing URL:', url);
-            
             // YouTube
-            const youtubePatterns = [
-                /(?:youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/,
-                /(?:youtu\.be\/)([a-zA-Z0-9_-]{11})/,
-                /(?:youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/
-            ];
-            
-            for (let pattern of youtubePatterns) {
-                const match = url.match(pattern);
-                if (match) {
-                    const videoId = match[1];
-                    const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=0&controls=1&enablejsapi=1`;
-                    console.log('YouTube embed:', embedUrl);
-                    return embedUrl;
-                }
+            const youtubeRegex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/;
+            const youtubeMatch = url.match(youtubeRegex);
+            if (youtubeMatch) {
+                return `https://www.youtube.com/embed/${youtubeMatch[1]}`;
             }
             
-            // Streamtape - Extract video ID and use direct link
-            if (url.includes('streamtape.com') || url.includes('streamtape.net')) {
-                // For Streamtape, we'll use the direct video link to avoid ads
-                // Format: /v/videoId becomes a direct link
-                const streamPattern = /(?:streamtape\.(?:com|net))\/([ve])\/([a-zA-Z0-9]+)/;
-                const match = url.match(streamPattern);
-                if (match) {
-                    const videoId = match[2];
-                    // Using /e/ for embed with minimal ads, but note: Streamtape always has some ads
-                    const embedUrl = `https://streamtape.com/e/${videoId}/`;
-                    console.log('Streamtape embed:', embedUrl);
-                    return embedUrl;
+            // Streamtape
+            if (url.includes('streamtape.com')) {
+                const streamtapeRegex = /streamtape\.com\/(?:e|v)\/([^\/\s]+)/;
+                const streamtapeMatch = url.match(streamtapeRegex);
+                if (streamtapeMatch) {
+                    return `https://streamtape.com/e/${streamtapeMatch[1]}`;
                 }
-                
-                if (url.includes('/e/')) {
-                    return url;
-                }
-            }
-            
-            // Direct video files
-            if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?.*)?$/i)) {
-                console.log('Direct video file:', url);
                 return url;
             }
             
-            console.log('Using original URL:', url);
+            // Direct video
+            if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i)) {
+                return url;
+            }
+            
             return url;
         }
 
-        function getVideoType(url) {
-            if (!url) return 'none';
-            if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
-            if (url.includes('streamtape.com') || url.includes('streamtape.net')) return 'streamtape';
-            if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?.*)?$/i)) return 'direct';
-            return 'iframe';
+        function isDirectVideo(url) {
+            return url && url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i);
         }
 
-        // Ad blocker simulation for Streamtape
-        function setupAdBlocking() {
-            // This is a simplified approach - in reality, blocking ads on external sites is complex
-            // and may violate terms of service
-            
-            // For Streamtape specifically, we can try to skip ads programmatically
-            if (state.currentVideoUrl.includes('streamtape')) {
-                console.log('Setting up Streamtape ad handling');
-                
-                // Show ad overlay for a few seconds to simulate ad skipping
-                state.adOverlayVisible = true;
-                render();
-                
-                // Hide the overlay after a delay (simulating ad skip)
-                setTimeout(() => {
-                    state.adOverlayVisible = false;
-                    render();
-                }, 3000);
-                
-                // Try to skip ads by manipulating the iframe (limited by browser security)
-                const iframe = document.getElementById('videoPlayer');
-                if (iframe) {
-                    // This approach has limitations due to cross-origin restrictions
-                    // In a real implementation, you might need a proxy server
-                    try {
-                        // Try to access the iframe content (will likely fail due to CORS)
-                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                        // Look for ad elements and try to skip them
-                        const skipButtons = iframeDoc.querySelectorAll('button, div');
-                        skipButtons.forEach(btn => {
-                            if (btn.textContent && btn.textContent.toLowerCase().includes('skip')) {
-                                btn.click();
-                            }
-                        });
-                    } catch (e) {
-                        console.log('Cannot access iframe content due to CORS:', e);
-                    }
-                }
-            }
-        }
-
-        async function createRoom() {
+        function createRoom() {
             if (!state.username.trim()) {
                 alert('Please enter your username');
                 return;
             }
 
-            state.isLoading = true;
-            render();
-
             const roomId = generateRoomId();
             state.currentRoom = roomId;
-            
-            const roomData = {
-                id: roomId,
-                video_url: '',
-                messages: JSON.stringify([{
-                    sender: 'System',
-                    text: `Room created! Share this ID: ${roomId}`,
-                    time: new Date().toLocaleTimeString(),
-                    timestamp: Date.now()
-                }]),
-                viewers: JSON.stringify([state.username]),
-                video_state: JSON.stringify({ playing: false, currentTime: 0, timestamp: Date.now() }),
-                last_updated: Date.now()
-            };
+            state.isInRoom = true;
+            state.viewers = [state.username];
+            state.messages = [{
+                sender: 'System',
+                text: `Room created! Share this ID: ${roomId}`,
+                time: new Date().toLocaleTimeString()
+            }];
 
-            try {
-                const { data, error } = await supabase
-                    .from('rooms')
-                    .insert([roomData])
-                    .select();
+            // Initialize room data
+            sync.joinRoom(roomId, state.username, handleRoomUpdate);
+            sync.updateRoom({
+                videoUrl: '',
+                messages: state.messages,
+                viewers: state.viewers,
+                videoState: state.videoState
+            });
 
-                if (error) {
-                    console.error('Supabase error details:', error);
-                    throw new Error(`${error.message} (Code: ${error.code})`);
-                }
-
-                state.isInRoom = true;
-                state.messages = JSON.parse(roomData.messages);
-                state.viewers = JSON.parse(roomData.viewers);
-                state.currentVideoUrl = roomData.video_url;
-                state.videoUrlInput = '';
-                
-                setupRealtimeSubscription(roomId);
-                
-                state.isLoading = false;
-                render();
-                
-                console.log('Room created:', roomId);
-            } catch (error) {
-                console.error('Error creating room:', error);
-                let errorMsg = error.message || JSON.stringify(error);
-                
-                if (errorMsg.includes('relation') || errorMsg.includes('does not exist')) {
-                    errorMsg = 'Database table "rooms" not found. Please create it in Supabase first!';
-                } else if (errorMsg.includes('permission') || errorMsg.includes('RLS')) {
-                    errorMsg = 'Permission denied. Please disable RLS or add policies in Supabase!';
-                } else if (errorMsg.includes('duplicate')) {
-                    errorMsg = 'Room ID already exists. Try again!';
-                }
-                
-                alert('Error creating room:\n' + errorMsg);
-                state.isLoading = false;
-                render();
-            }
+            render();
         }
 
-        async function joinRoom() {
+        function joinRoom() {
             if (!state.username.trim() || !state.roomId.trim()) {
                 alert('Please enter both username and room ID');
                 return;
             }
 
-            state.isLoading = true;
-            render();
-
             const roomId = state.roomId.toUpperCase();
-
-            try {
-                const { data, error } = await supabase
-                    .from('rooms')
-                    .select('*')
-                    .eq('id', roomId)
-                    .single();
-
-                if (error || !data) {
-                    alert('Room not found! Please check the room ID.');
-                    state.isLoading = false;
-                    render();
-                    return;
-                }
-
-                state.currentRoom = roomId;
-                
-                const viewers = JSON.parse(data.viewers || '[]');
-                if (!viewers.includes(state.username)) {
-                    viewers.push(state.username);
-                }
-
-                const messages = JSON.parse(data.messages || '[]');
-                messages.push({
-                    sender: 'System',
-                    text: `${state.username} joined the room`,
-                    time: new Date().toLocaleTimeString(),
-                    timestamp: Date.now()
-                });
-
-                const { error: updateError } = await supabase
-                    .from('rooms')
-                    .update({
-                        viewers: JSON.stringify(viewers),
-                        messages: JSON.stringify(messages),
-                        last_updated: Date.now()
-                    })
-                    .eq('id', roomId);
-
-                if (updateError) throw updateError;
-
-                state.isInRoom = true;
-                state.messages = messages;
-                state.viewers = viewers;
-                state.currentVideoUrl = data.video_url || '';
-                state.videoUrlInput = '';
-                state.videoState = JSON.parse(data.video_state || '{"playing":false,"currentTime":0}');
-                
-                setupRealtimeSubscription(roomId);
-                
-                state.isLoading = false;
-                render();
-                
-                console.log('Joined room:', roomId);
-            } catch (error) {
-                console.error('Error joining room:', error);
-                alert('Failed to join room: ' + error.message);
-                state.isLoading = false;
-                render();
-            }
-        }
-
-        function setupRealtimeSubscription(roomId) {
-            if (state.subscription) {
-                state.subscription.unsubscribe();
+            
+            // Check if room exists
+            const roomData = sync.loadRoomData();
+            if (!roomData.messages || roomData.messages.length === 0) {
+                alert('Room not found! Please check the room ID.');
+                return;
             }
 
-            state.subscription = supabase
-                .channel(`room:${roomId}`)
-                .on('postgres_changes', 
-                    { 
-                        event: '*', 
-                        schema: 'public', 
-                        table: 'rooms',
-                        filter: `id=eq.${roomId}`
-                    }, 
-                    (payload) => {
-                        console.log('Real-time update received:', payload);
-                        if (payload.new) {
-                            updateStateFromSupabase(payload.new);
-                        }
-                    }
-                )
-                .subscribe((status) => {
-                    console.log('Realtime subscription status:', status);
-                });
+            state.currentRoom = roomId;
+            state.isInRoom = true;
+
+            // Join room and get current data
+            sync.joinRoom(roomId, state.username, handleRoomUpdate);
+            
+            // Update room with new viewer
+            const updatedViewers = [...roomData.viewers];
+            if (!updatedViewers.includes(state.username)) {
+                updatedViewers.push(state.username);
+            }
+
+            const updatedMessages = [...roomData.messages, {
+                sender: 'System',
+                text: `${state.username} joined the room`,
+                time: new Date().toLocaleTimeString()
+            }];
+
+            sync.updateRoom({
+                viewers: updatedViewers,
+                messages: updatedMessages
+            });
+
+            // Update local state
+            state.viewers = updatedViewers;
+            state.messages = updatedMessages;
+            state.videoUrl = roomData.videoUrl || '';
+
+            render();
         }
 
-        function updateStateFromSupabase(data) {
-            const messages = JSON.parse(data.messages || '[]');
-            const viewers = JSON.parse(data.viewers || '[]');
-            const videoUrl = data.video_url || '';
-            const videoState = JSON.parse(data.video_state || '{}');
-
+        function handleRoomUpdate(roomData) {
             let changed = false;
 
-            // Update video URL if changed
-            if (videoUrl !== state.currentVideoUrl) {
-                console.log('Video URL changed:', videoUrl);
-                state.currentVideoUrl = videoUrl;
-                setupAdBlocking(); // Setup ad blocking when video changes
+            if (roomData.videoUrl !== state.videoUrl) {
+                state.videoUrl = roomData.videoUrl;
                 changed = true;
             }
 
-            // Update messages
-            if (messages.length !== state.messages.length) {
-                state.messages = messages;
+            if (roomData.messages.length !== state.messages.length) {
+                state.messages = roomData.messages;
                 changed = true;
             }
 
-            // Update viewers
-            if (JSON.stringify(viewers) !== JSON.stringify(state.viewers)) {
-                state.viewers = viewers;
+            if (JSON.stringify(roomData.viewers) !== JSON.stringify(state.viewers)) {
+                state.viewers = roomData.viewers;
                 changed = true;
             }
 
-            // Sync video playback state
-            if (videoState && videoState.timestamp && videoState.timestamp > state.lastVideoStateUpdate) {
-                console.log('Syncing video state:', videoState);
-                state.lastVideoStateUpdate = videoState.timestamp;
-                syncVideo(videoState);
+            if (roomData.videoState) {
+                syncVideo(roomData.videoState);
             }
 
             if (changed) {
@@ -452,204 +312,79 @@
             }
         }
 
-        async function setVideo() {
-            if (!state.videoUrlInput.trim()) {
+        function setVideo() {
+            if (!state.videoUrl.trim()) {
                 alert('Please enter a video URL');
                 return;
             }
 
-            const newVideoUrl = state.videoUrlInput.trim();
-            
             const messages = [...state.messages, {
                 sender: 'System',
                 text: `Video set by ${state.username}`,
-                time: new Date().toLocaleTimeString(),
-                timestamp: Date.now()
+                time: new Date().toLocaleTimeString()
             }];
 
-            try {
-                const { error } = await supabase
-                    .from('rooms')
-                    .update({
-                        video_url: newVideoUrl,
-                        messages: JSON.stringify(messages),
-                        video_state: JSON.stringify({ playing: false, currentTime: 0, timestamp: Date.now() }),
-                        last_updated: Date.now()
-                    })
-                    .eq('id', state.currentRoom);
+            sync.updateRoom({
+                videoUrl: state.videoUrl,
+                messages: messages,
+                videoState: { playing: false, currentTime: 0 }
+            });
 
-                if (error) throw error;
-
-                state.messages = messages;
-                state.currentVideoUrl = newVideoUrl;
-                state.videoUrlInput = '';
-                setupAdBlocking(); // Setup ad blocking for the new video
-                render();
-            } catch (error) {
-                alert('Error setting video: ' + error.message);
-            }
+            state.messages = messages;
+            state.videoUrl = '';
+            render();
         }
 
-        async function sendMessage() {
+        function sendMessage() {
             if (!state.messageInput.trim()) return;
 
             const messages = [...state.messages, {
                 sender: state.username,
                 text: state.messageInput,
-                time: new Date().toLocaleTimeString(),
-                timestamp: Date.now()
+                time: new Date().toLocaleTimeString()
             }];
 
-            try {
-                const { error } = await supabase
-                    .from('rooms')
-                    .update({
-                        messages: JSON.stringify(messages),
-                        last_updated: Date.now()
-                    })
-                    .eq('id', state.currentRoom);
+            sync.updateRoom({ messages: messages });
 
-                if (error) throw error;
-
-                state.messages = messages;
-                state.messageInput = '';
-                render();
-            } catch (error) {
-                alert('Error sending message: ' + error.message);
-            }
-        }
-
-        // Manual play/pause controls for iframes
-        async function playVideo() {
-            await updateVideoState(true, 0);
-            const iframe = document.getElementById('videoPlayer');
-            if (iframe && iframe.tagName === 'IFRAME') {
-                // For YouTube
-                if (state.currentVideoUrl.includes('youtube')) {
-                    iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-                }
-                // For Streamtape - we can't directly control due to CORS
-            }
-            const video = document.getElementById('videoPlayer');
-            if (video && video.tagName === 'VIDEO') {
-                video.play();
-            }
-        }
-
-        async function pauseVideo() {
-            const video = document.getElementById('videoPlayer');
-            let currentTime = 0;
-            if (video && video.tagName === 'VIDEO') {
-                currentTime = video.currentTime;
-                video.pause();
-            }
-            await updateVideoState(false, currentTime);
-            
-            const iframe = document.getElementById('videoPlayer');
-            if (iframe && iframe.tagName === 'IFRAME') {
-                // For YouTube
-                if (state.currentVideoUrl.includes('youtube')) {
-                    iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
-                }
-                // For Streamtape - we can't directly control due to CORS
-            }
+            state.messages = messages;
+            state.messageInput = '';
+            render();
         }
 
         function setupVideoSync() {
             videoElement = document.getElementById('videoPlayer');
-            if (!videoElement) return;
+            if (!videoElement || videoElement.tagName !== 'VIDEO') return;
 
-            if (videoElement.tagName === 'VIDEO') {
-                videoElement.addEventListener('play', () => {
-                    if (!isUpdatingFromRemote) {
-                        updateVideoState(true, videoElement.currentTime);
-                    }
-                });
-                
-                videoElement.addEventListener('pause', () => {
-                    if (!isUpdatingFromRemote) {
-                        updateVideoState(false, videoElement.currentTime);
-                    }
-                });
-                
-                videoElement.addEventListener('seeked', () => {
-                    if (!isUpdatingFromRemote) {
-                        updateVideoState(!videoElement.paused, videoElement.currentTime);
-                    }
-                });
-            } else if (videoElement.tagName === 'IFRAME') {
-                // For YouTube iframes with JS API enabled
-                if (state.currentVideoUrl.includes('youtube')) {
-                    // YouTube API would be initialized here
-                    console.log('YouTube iframe detected - sync limited');
-                }
-            }
+            videoElement.addEventListener('play', () => updateVideoState(true));
+            videoElement.addEventListener('pause', () => updateVideoState(false));
+            videoElement.addEventListener('seeked', () => updateVideoState(!videoElement.paused));
         }
 
-        async function updateVideoState(playing, currentTime) {
+        function updateVideoState(playing) {
+            if (!videoElement) return;
+
             const videoState = {
                 playing: playing,
-                currentTime: currentTime || 0,
-                timestamp: Date.now()
+                currentTime: videoElement.currentTime
             };
 
-            console.log('Updating video state:', videoState);
-
-            try {
-                const { error } = await supabase
-                    .from('rooms')
-                    .update({
-                        video_state: JSON.stringify(videoState),
-                        last_updated: Date.now()
-                    })
-                    .eq('id', state.currentRoom);
-
-                if (error) throw error;
-            } catch (error) {
-                console.error('Error updating video state:', error);
-            }
+            sync.updateRoom({ videoState: videoState });
         }
 
         function syncVideo(remoteState) {
-            videoElement = document.getElementById('videoPlayer');
-            
-            if (!videoElement) {
-                console.log('Cannot sync - no video element');
-                return;
+            if (!videoElement || videoElement.tagName !== 'VIDEO') return;
+
+            const timeDiff = Math.abs(remoteState.currentTime - videoElement.currentTime);
+
+            if (timeDiff > 2) {
+                videoElement.currentTime = remoteState.currentTime;
             }
 
-            isUpdatingFromRemote = true;
-
-            if (videoElement.tagName === 'VIDEO') {
-                const timeDiff = Math.abs(remoteState.currentTime - videoElement.currentTime);
-
-                if (timeDiff > 2) {
-                    videoElement.currentTime = remoteState.currentTime;
-                }
-
-                if (remoteState.playing && videoElement.paused) {
-                    console.log('Playing video');
-                    videoElement.play().catch(e => console.log('Play failed:', e));
-                } else if (!remoteState.playing && !videoElement.paused) {
-                    console.log('Pausing video');
-                    videoElement.pause();
-                }
-            } else if (videoElement.tagName === 'IFRAME') {
-                // For YouTube iframes
-                if (state.currentVideoUrl.includes('youtube')) {
-                    // Send play/pause commands to YouTube iframe
-                    if (remoteState.playing) {
-                        videoElement.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-                    } else {
-                        videoElement.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
-                    }
-                }
-                // For Streamtape, we can't control playback due to CORS
+            if (remoteState.playing && videoElement.paused) {
+                videoElement.play().catch(e => console.log('Play failed:', e));
+            } else if (!remoteState.playing && !videoElement.paused) {
+                videoElement.pause();
             }
-
-            setTimeout(() => {
-                isUpdatingFromRemote = false;
-            }, 100);
         }
 
         function copyRoomId() {
@@ -659,30 +394,15 @@
         }
 
         function leaveRoom() {
-            if (state.subscription) {
-                state.subscription.unsubscribe();
+            if (sync) {
+                sync.leaveRoom();
             }
             state.isInRoom = false;
             state.currentRoom = null;
-            state.currentVideoUrl = '';
-            state.videoUrlInput = '';
+            state.videoUrl = '';
             state.messages = [];
             state.viewers = [];
-            state.adOverlayVisible = false;
             render();
-        }
-
-        function skipAd() {
-            state.adOverlayVisible = false;
-            render();
-            
-            // Try to play the video after skipping the ad
-            if (videoElement && videoElement.tagName === 'IFRAME') {
-                // For Streamtape, we can't directly control the video due to CORS
-                // But we can try to reload the iframe to skip to the content
-                const currentSrc = videoElement.src;
-                videoElement.src = currentSrc;
-            }
         }
 
         function renderLoginScreen() {
@@ -690,23 +410,21 @@
                 <div class="login-screen">
                     <div class="card login-card">
                         <h1>Watch2gether</h1>
-                        <p style="color: #c4b5fd; margin-bottom: 1rem;">Watch videos together in real-time! 🎬</p>
-                        
-                        ${state.isLoading ? '<div class="loading">⏳ Loading...</div>' : ''}
+                        <p style="color: #c4b5fd; margin-bottom: 1rem;">Simple Sync Version</p>
                         
                         <div style="margin-bottom: 1rem;">
                             <label>Your Username</label>
                             <input type="text" id="username" value="${state.username}" placeholder="Enter your name"/>
                         </div>
                         
-                        <button onclick="createRoom()" ${state.isLoading ? 'disabled' : ''}>
+                        <button onclick="createRoom()">
                             👥 Create New Room
                         </button>
                         
                         <div style="border-top: 1px solid rgba(255,255,255,0.2); margin: 1.5rem 0; padding-top: 1.5rem;">
                             <label>Join Existing Room</label>
                             <input type="text" id="roomId" value="${state.roomId}" placeholder="Enter Room ID" style="margin-bottom: 0.75rem;"/>
-                            <button onclick="joinRoom()" style="background: #4f46e5;" ${state.isLoading ? 'disabled' : ''}>
+                            <button onclick="joinRoom()" style="background: #4f46e5;">
                                 Join Room
                             </button>
                         </div>
@@ -716,26 +434,21 @@
         }
 
         function renderMainScreen() {
-            const embedUrl = getEmbedUrl(state.currentVideoUrl);
-            const videoType = getVideoType(state.currentVideoUrl);
-
-            console.log('Rendering - Video URL:', state.currentVideoUrl);
-            console.log('Embed URL:', embedUrl);
-            console.log('Video type:', videoType);
+            const embedUrl = getEmbedUrl(state.videoUrl);
+            const isDirect = isDirectVideo(state.videoUrl);
 
             let videoElement = '';
-            if (state.currentVideoUrl) {
-                if (videoType === 'direct') {
-                    videoElement = `<video id="videoPlayer" controls controlsList="nodownload" src="${embedUrl}"></video>`;
-                } else if (videoType === 'youtube' || videoType === 'streamtape' || videoType === 'iframe') {
-                    videoElement = `<iframe id="videoPlayer" src="${embedUrl}" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen scrolling="no"></iframe>`;
+            if (state.videoUrl) {
+                if (isDirect) {
+                    videoElement = `<video id="videoPlayer" controls src="${state.videoUrl}"></video>`;
+                } else if (embedUrl) {
+                    videoElement = `<iframe id="videoPlayer" src="${embedUrl}" allowfullscreen></iframe>`;
                 } else {
                     videoElement = `
                         <div class="video-placeholder">
                             <div>
                                 <p style="font-size: 4rem; margin-bottom: 1rem;">❌</p>
-                                <p>Unable to load video</p>
-                                <p style="font-size: 0.875rem; margin-top: 0.5rem;">Try a YouTube or Streamtape URL</p>
+                                <p>Invalid video URL</p>
                             </div>
                         </div>
                     `;
@@ -746,13 +459,11 @@
                         <div>
                             <p style="font-size: 4rem; margin-bottom: 1rem;">▶️</p>
                             <p>No video loaded</p>
-                            <p style="font-size: 0.875rem; margin-top: 0.5rem;">Add a video URL below</p>
+                            <p>Add a YouTube or video URL below</p>
                         </div>
                     </div>
                 `;
             }
-
-            const showControls = state.currentVideoUrl && (videoType === 'direct' || videoType === 'streamtape' || videoType === 'youtube');
 
             return `
                 <div class="container">
@@ -777,30 +488,16 @@
                             <div class="card">
                                 <div class="video-container">
                                     ${videoElement}
-                                    ${state.adOverlayVisible ? `
-                                        <div class="ad-overlay">
-                                            <h3>Ad Detected</h3>
-                                            <p>Streamtape ads are being handled...</p>
-                                            <button onclick="skipAd()">Skip Ad</button>
-                                        </div>
-                                    ` : ''}
                                 </div>
-                                ${videoType === 'direct' ? '<div class="sync-status">🎯 Real-time sync enabled</div>' : 
-                                  '<div class="sync-status">⚠️ Limited sync for embedded videos. Use controls below.</div>'}
-                                ${showControls && videoType !== 'direct' ? `
-                                    <div class="video-controls">
-                                        <button onclick="playVideo()" class="btn-small">▶️ Play for Everyone</button>
-                                        <button onclick="pauseVideo()" class="btn-small">⏸️ Pause for Everyone</button>
-                                    </div>
-                                ` : ''}
-                                ${videoType === 'streamtape' ? '<p class="info-text">⚠️ Note: Streamtape may show ads. Use fullscreen button in the video player.</p>' : ''}
+                                ${isDirect ? '<div class="sync-status">🎯 Real-time sync enabled</div>' : 
+                                  '<div class="sync-status">⚠️ Sync limited for embedded videos</div>'}
                             </div>
                             
                             <div class="section-card">
                                 <label>🔗 Add Video URL</label>
                                 <div class="flex">
-                                    <input type="text" id="videoUrl" value="${state.videoUrlInput}" placeholder="YouTube, Streamtape, or direct video link"/>
-                                    <button onclick="setVideo()" class="btn-small" ${state.isLoading ? 'disabled' : ''}>Load</button>
+                                    <input type="text" id="videoUrl" value="${state.videoUrl}" placeholder="YouTube, Streamtape, or direct video link"/>
+                                    <button onclick="setVideo()" class="btn-small">Load</button>
                                 </div>
                                 <p class="info-text">
                                     ✅ YouTube | ✅ Streamtape | ✅ Direct MP4/WebM links
@@ -854,14 +551,14 @@
                     usernameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') createRoom(); });
                 }
                 if (roomIdInput) {
-                    roomIdInput.addEventListener('input', (e) => state.roomId = e.target.value.toUpperCase());
+                    roomIdInput.addEventListener('input', (e) => state.roomId = e.target.value);
                     roomIdInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') joinRoom(); });
                 }
             } else {
                 const videoUrlInput = document.getElementById('videoUrl');
                 const messageInput = document.getElementById('messageInput');
                 if (videoUrlInput) {
-                    videoUrlInput.addEventListener('input', (e) => state.videoUrlInput = e.target.value);
+                    videoUrlInput.addEventListener('input', (e) => state.videoUrl = e.target.value);
                     videoUrlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') setVideo(); });
                 }
                 if (messageInput) {
@@ -881,9 +578,6 @@
         window.sendMessage = sendMessage;
         window.copyRoomId = copyRoomId;
         window.leaveRoom = leaveRoom;
-        window.playVideo = playVideo;
-        window.pauseVideo = pauseVideo;
-        window.skipAd = skipAd;
     </script>
 </body>
 </html>
