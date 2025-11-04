@@ -362,8 +362,8 @@
                 changed = true;
             }
 
-            // Update messages
-            if (messages.length !== state.messages.length) {
+            // Update messages - always update to get new messages
+            if (JSON.stringify(messages) !== JSON.stringify(state.messages)) {
                 state.messages = messages;
                 changed = true;
             }
@@ -375,10 +375,12 @@
             }
 
             // Sync video playback state
-            if (videoState && videoState.timestamp && videoState.timestamp > state.lastVideoStateUpdate) {
-                console.log('Syncing video state:', videoState);
-                state.lastVideoStateUpdate = videoState.timestamp;
-                syncVideo(videoState);
+            if (videoState && videoState.timestamp) {
+                if (videoState.timestamp !== state.lastVideoStateUpdate) {
+                    console.log('Syncing video state:', videoState);
+                    state.lastVideoStateUpdate = videoState.timestamp;
+                    syncVideo(videoState);
+                }
             }
 
             if (changed) {
@@ -452,37 +454,28 @@
             }
         }
 
-        // Manual play/pause controls for iframes
+        // Manual play/pause controls for ALL videos
         async function playVideo() {
-            await updateVideoState(true, 0);
-            const iframe = document.getElementById('videoPlayer');
-            if (iframe && iframe.tagName === 'IFRAME') {
-                // For YouTube
-                if (state.currentVideoUrl.includes('youtube')) {
-                    iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
-                }
-            }
             const video = document.getElementById('videoPlayer');
+            
             if (video && video.tagName === 'VIDEO') {
                 video.play();
+                await updateVideoState(true, video.currentTime);
+            } else {
+                // For iframes (YouTube/Streamtape), just broadcast the state
+                await updateVideoState(true, 0);
             }
         }
 
         async function pauseVideo() {
             const video = document.getElementById('videoPlayer');
-            let currentTime = 0;
-            if (video && video.tagName === 'VIDEO') {
-                currentTime = video.currentTime;
-                video.pause();
-            }
-            await updateVideoState(false, currentTime);
             
-            const iframe = document.getElementById('videoPlayer');
-            if (iframe && iframe.tagName === 'IFRAME') {
-                // For YouTube
-                if (state.currentVideoUrl.includes('youtube')) {
-                    iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
-                }
+            if (video && video.tagName === 'VIDEO') {
+                video.pause();
+                await updateVideoState(false, video.currentTime);
+            } else {
+                // For iframes, just broadcast the state
+                await updateVideoState(false, 0);
             }
         }
 
@@ -536,8 +529,18 @@
         function syncVideo(remoteState) {
             videoElement = document.getElementById('videoPlayer');
             
+            // For embedded videos, show notification
             if (!videoElement || videoElement.tagName !== 'VIDEO') {
-                console.log('Cannot sync - not a video element');
+                const videoType = getVideoType(state.currentVideoUrl);
+                if (videoType === 'youtube' || videoType === 'streamtape') {
+                    // Show visual notification
+                    if (remoteState.playing) {
+                        showSyncNotification('▶️ Host started playing');
+                    } else {
+                        showSyncNotification('⏸️ Host paused video');
+                    }
+                }
+                console.log('Cannot auto-sync embedded video');
                 return;
             }
 
@@ -560,6 +563,32 @@
             setTimeout(() => {
                 isUpdatingFromRemote = false;
             }, 100);
+        }
+
+        function showSyncNotification(message) {
+            const existing = document.getElementById('sync-notification');
+            if (existing) existing.remove();
+
+            const notification = document.createElement('div');
+            notification.id = 'sync-notification';
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: rgba(124, 58, 237, 0.9);
+                color: white;
+                padding: 1rem 1.5rem;
+                border-radius: 0.5rem;
+                font-weight: 600;
+                z-index: 1000;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            `;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
         }
 
         function copyRoomId() {
@@ -676,11 +705,12 @@
                                 </div>
                                 ${videoType === 'direct' ? '<div class="sync-status">🎯 Real-time sync enabled</div>' : 
                                   '<div class="sync-status">⚠️ Limited sync for embedded videos. Use controls below.</div>'}
-                                ${showControls && videoType !== 'direct' ? `
+                                ${showControls ? `
                                     <div class="video-controls">
                                         <button onclick="playVideo()" class="btn-small">▶️ Play for Everyone</button>
                                         <button onclick="pauseVideo()" class="btn-small">⏸️ Pause for Everyone</button>
                                     </div>
+                                    <p class="info-text">💡 Host uses these buttons to control playback for everyone</p>
                                 ` : ''}
                                 ${videoType === 'streamtape' ? '<p class="info-text">⚠️ Note: Streamtape may show ads. Use fullscreen button in the video player.</p>' : ''}
                             </div>
