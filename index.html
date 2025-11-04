@@ -94,7 +94,8 @@
             username: '',
             roomId: '',
             currentRoom: null,
-            videoUrl: '',
+            currentVideoUrl: '',  // The video being displayed
+            videoUrlInput: '',    // The input field value
             messages: [],
             messageInput: '',
             viewers: [],
@@ -201,16 +202,21 @@
             };
 
             try {
-                const { error } = await supabase
+                const { data, error } = await supabase
                     .from('rooms')
-                    .insert([roomData]);
+                    .insert([roomData])
+                    .select();
 
-                if (error) throw error;
+                if (error) {
+                    console.error('Supabase error details:', error);
+                    throw new Error(`${error.message} (Code: ${error.code})`);
+                }
 
                 state.isInRoom = true;
                 state.messages = JSON.parse(roomData.messages);
                 state.viewers = JSON.parse(roomData.viewers);
-                state.videoUrl = roomData.video_url;
+                state.currentVideoUrl = roomData.video_url;
+                state.videoUrlInput = '';
                 
                 setupRealtimeSubscription(roomId);
                 
@@ -220,7 +226,18 @@
                 console.log('Room created:', roomId);
             } catch (error) {
                 console.error('Error creating room:', error);
-                alert('Error creating room: ' + error.message);
+                let errorMsg = error.message || JSON.stringify(error);
+                
+                // Check for common issues
+                if (errorMsg.includes('relation') || errorMsg.includes('does not exist')) {
+                    errorMsg = 'Database table "rooms" not found. Please create it in Supabase first!';
+                } else if (errorMsg.includes('permission') || errorMsg.includes('RLS')) {
+                    errorMsg = 'Permission denied. Please disable RLS or add policies in Supabase!';
+                } else if (errorMsg.includes('duplicate')) {
+                    errorMsg = 'Room ID already exists. Try again!';
+                }
+                
+                alert('Error creating room:\n' + errorMsg);
                 state.isLoading = false;
                 render();
             }
@@ -280,7 +297,8 @@
                 state.isInRoom = true;
                 state.messages = messages;
                 state.viewers = viewers;
-                state.videoUrl = data.video_url || '';
+                state.currentVideoUrl = data.video_url || '';
+                state.videoUrlInput = '';
                 state.videoState = JSON.parse(data.video_state || '{"playing":false,"currentTime":0}');
                 
                 setupRealtimeSubscription(roomId);
@@ -329,8 +347,8 @@
 
             let changed = false;
 
-            if (videoUrl !== state.videoUrl) {
-                state.videoUrl = videoUrl;
+            if (videoUrl !== state.currentVideoUrl) {
+                state.currentVideoUrl = videoUrl;
                 changed = true;
             }
 
@@ -354,11 +372,13 @@
         }
 
         async function setVideo() {
-            if (!state.videoUrl.trim()) {
+            if (!state.videoUrlInput.trim()) {
                 alert('Please enter a video URL');
                 return;
             }
 
+            const newVideoUrl = state.videoUrlInput.trim();
+            
             const messages = [...state.messages, {
                 sender: 'System',
                 text: `Video set by ${state.username}`,
@@ -370,7 +390,7 @@
                 const { error } = await supabase
                     .from('rooms')
                     .update({
-                        video_url: state.videoUrl,
+                        video_url: newVideoUrl,
                         messages: JSON.stringify(messages),
                         video_state: JSON.stringify({ playing: false, currentTime: 0 }),
                         last_updated: Date.now()
@@ -379,8 +399,10 @@
 
                 if (error) throw error;
 
+                // Update local state immediately
                 state.messages = messages;
-                state.videoUrl = '';
+                state.currentVideoUrl = newVideoUrl;
+                state.videoUrlInput = '';  // Clear the input
                 render();
             } catch (error) {
                 alert('Error setting video: ' + error.message);
@@ -512,15 +534,15 @@
         }
 
         function renderMainScreen() {
-            const embedUrl = getEmbedUrl(state.videoUrl);
-            const videoType = getVideoType(state.videoUrl);
+            const embedUrl = getEmbedUrl(state.currentVideoUrl);
+            const videoType = getVideoType(state.currentVideoUrl);
 
-            console.log('Video URL:', state.videoUrl);
+            console.log('Video URL:', state.currentVideoUrl);
             console.log('Embed URL:', embedUrl);
             console.log('Video type:', videoType);
 
             let videoElement = '';
-            if (state.videoUrl) {
+            if (state.currentVideoUrl) {
                 if (videoType === 'direct') {
                     videoElement = `<video id="videoPlayer" controls src="${embedUrl}"></video>`;
                 } else if (videoType === 'youtube' || videoType === 'streamtape' || videoType === 'iframe') {
@@ -579,7 +601,7 @@
                             <div class="section-card">
                                 <label>🔗 Add Video URL</label>
                                 <div class="flex">
-                                    <input type="text" id="videoUrl" value="${state.videoUrl}" placeholder="YouTube, Streamtape, or direct video link"/>
+                                    <input type="text" id="videoUrl" value="${state.videoUrlInput}" placeholder="YouTube, Streamtape, or direct video link"/>
                                     <button onclick="setVideo()" class="btn-small" ${state.isLoading ? 'disabled' : ''}>Load</button>
                                 </div>
                                 <p class="info-text">
@@ -641,7 +663,7 @@
                 const videoUrlInput = document.getElementById('videoUrl');
                 const messageInput = document.getElementById('messageInput');
                 if (videoUrlInput) {
-                    videoUrlInput.addEventListener('input', (e) => state.videoUrl = e.target.value);
+                    videoUrlInput.addEventListener('input', (e) => state.videoUrlInput = e.target.value);
                     videoUrlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') setVideo(); });
                 }
                 if (messageInput) {
