@@ -277,18 +277,18 @@
                     .from('rooms')
                     .select('*')
                     .eq('id', roomId)
-                    .single();
+                    .maybeSingle();
 
                 if (error) {
                     console.error('Supabase error:', error);
-                    alert('Room not found! Please check the room ID. Error: ' + error.message);
+                    alert('Error joining room: ' + error.message);
                     state.isLoading = false;
                     render();
                     return;
                 }
 
                 if (!data) {
-                    alert('Room not found! Please check the room ID.');
+                    alert('Room not found! Please check the room ID and make sure it exists.');
                     state.isLoading = false;
                     render();
                     return;
@@ -337,12 +337,12 @@
                 
                 // Force re-check viewers after a moment to ensure sync
                 setTimeout(async () => {
-                    const { data: roomData } = await supabase
+                    const { data: roomData, error: roomError } = await supabase
                         .from('rooms')
                         .select('viewers')
                         .eq('id', roomId)
-                        .single();
-                    if (roomData) {
+                        .maybeSingle();
+                    if (roomData && !roomError) {
                         const updatedViewers = JSON.parse(roomData.viewers || '[]');
                         if (JSON.stringify(updatedViewers.sort()) !== JSON.stringify(state.viewers.sort())) {
                             state.viewers = updatedViewers;
@@ -638,13 +638,13 @@
             // Remove user from viewers list
             if (state.currentRoom && state.username) {
                 try {
-                    const { data } = await supabase
+                    const { data, error } = await supabase
                         .from('rooms')
                         .select('viewers')
                         .eq('id', state.currentRoom)
-                        .single();
+                        .maybeSingle();
                     
-                    if (data) {
+                    if (data && !error) {
                         const viewers = JSON.parse(data.viewers || '[]');
                         const updatedViewers = viewers.filter(v => v !== state.username);
                         
