@@ -15,7 +15,6 @@
         .header { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; }
         .card { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1rem; }
         
-        /* ORIGINAL VIDEO PLAYER STYLING */
         .video-container {
             background: black;
             border-radius: 0.5rem;
@@ -44,8 +43,10 @@
         .chat-input { display: flex; gap: 0.5rem; }
         input, button { padding: 0.75rem 1rem; border-radius: 0.5rem; border: none; font-size: 1rem; }
         input { background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); flex: 1; }
+        input::placeholder { color: rgba(255,255,255,0.5); }
         button { background: #7c3aed; color: white; cursor: pointer; }
         button:hover { background: #6d28d9; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-small { padding: 0.5rem 1rem; font-size: 0.875rem; }
         .login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
         .login-card { max-width: 400px; width: 100%; }
@@ -58,8 +59,6 @@
         .success { background: rgba(34,197,94,0.2); border: 1px solid #22c55e; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; }
         .loading { color: #c4b5fd; text-align: center; padding: 1rem; }
         .error { background: rgba(239,68,68,0.2); border: 1px solid #ef4444; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; }
-        
-        /* Original additional styles */
         .section-card {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(10px);
@@ -80,18 +79,15 @@
         }
     </style>
     
-    <!-- Supabase CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div id="app"></div>
 
     <script>
-        // === YOUR SUPABASE CREDENTIALS ===
         const SUPABASE_URL = 'https://uwpknyzrvzljofnnzxic.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3cGtueXpydnpsam9mbm56eGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIxODMxNDUsImV4cCI6MjA3Nzc1OTE0NX0.9woJ_lEdpjksm8WqzMDisSL3pfoGiyzXawwob9-0XcA';
         
-        // Initialize Supabase with YOUR credentials
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let state = {
@@ -110,99 +106,74 @@
 
         let videoElement = null;
 
-        // Generate room ID
         function generateRoomId() {
             return Math.random().toString(36).substring(2, 8).toUpperCase();
         }
 
-        // Get embed URL - IMPROVED STREAMTAPE DETECTION
+        // FIXED: Better URL parsing for Streamtape and YouTube
         function getEmbedUrl(url) {
             if (!url) return '';
             
+            url = url.trim();
             console.log('Processing URL:', url);
             
-            // YouTube handling
-            const youtubeRegex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/;
-            const youtubeMatch = url.match(youtubeRegex);
-            if (youtubeMatch) {
-                const embedUrl = `https://www.youtube.com/embed/${youtubeMatch[1]}`;
-                console.log('YouTube embed URL:', embedUrl);
-                return embedUrl;
+            // YouTube - multiple formats
+            const youtubePatterns = [
+                /(?:youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/,
+                /(?:youtu\.be\/)([a-zA-Z0-9_-]{11})/,
+                /(?:youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/
+            ];
+            
+            for (let pattern of youtubePatterns) {
+                const match = url.match(pattern);
+                if (match) {
+                    const videoId = match[1];
+                    const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=0&controls=1`;
+                    console.log('YouTube embed:', embedUrl);
+                    return embedUrl;
+                }
             }
             
-            // Streamtape handling - IMPROVED
-            if (url.includes('streamtape.com')) {
-                // Extract video ID from various Streamtape URL formats
+            // Streamtape - multiple formats
+            if (url.includes('streamtape.com') || url.includes('streamtape.net')) {
                 let videoId = '';
                 
-                // Format 1: https://streamtape.com/v/videoId/filename.mp4
-                const streamtapeVRegex = /streamtape\.com\/v\/([^\/\s]+)/;
-                const vMatch = url.match(streamtapeVRegex);
-                if (vMatch) {
-                    videoId = vMatch[1];
-                }
-                
-                // Format 2: https://streamtape.com/e/videoId/
-                const streamtapeERegex = /streamtape\.com\/e\/([^\/\s]+)/;
-                const eMatch = url.match(streamtapeERegex);
-                if (eMatch) {
-                    videoId = eMatch[1];
-                }
-                
-                // Format 3: Direct Streamtape embed
-                if (!videoId && url.includes('/v/')) {
-                    const parts = url.split('/v/');
-                    if (parts[1]) {
-                        videoId = parts[1].split('/')[0];
-                    }
-                }
-                
-                if (videoId) {
+                // Format 1: /v/videoId or /e/videoId
+                const streamPattern = /(?:streamtape\.(?:com|net))\/([ve])\/([a-zA-Z0-9]+)/;
+                const match = url.match(streamPattern);
+                if (match) {
+                    videoId = match[2];
                     const embedUrl = `https://streamtape.com/e/${videoId}`;
-                    console.log('Streamtape embed URL:', embedUrl);
+                    console.log('Streamtape embed:', embedUrl);
                     return embedUrl;
                 }
                 
-                // If no specific pattern matches, try to use the URL as-is for iframe
-                console.log('Using original Streamtape URL as embed');
+                // If already an embed URL, use as is
+                if (url.includes('/e/')) {
+                    console.log('Streamtape embed (direct):', url);
+                    return url;
+                }
+            }
+            
+            // Direct video files
+            if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?.*)?$/i)) {
+                console.log('Direct video file:', url);
                 return url;
             }
             
-            // Direct video links
-            if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i)) {
-                console.log('Direct video URL');
-                return url;
-            }
-            
-            console.log('No specific embed handling, using original URL');
-            return url; // Return original URL for other cases
+            // If nothing matched, return original
+            console.log('Using original URL:', url);
+            return url;
         }
 
-        function isDirectVideo(url) {
-            return url && url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i);
+        function getVideoType(url) {
+            if (!url) return 'none';
+            if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
+            if (url.includes('streamtape.com') || url.includes('streamtape.net')) return 'streamtape';
+            if (url.match(/\.(mp4|webm|ogg|mov|avi|mkv)(\?.*)?$/i)) return 'direct';
+            return 'iframe';
         }
 
-        function isStreamtape(url) {
-            return url && url.includes('streamtape.com');
-        }
-
-        function isValidVideoUrl(url) {
-            // Allow any URL that contains video platforms or direct video files
-            return url && (
-                url.includes('youtube.com') || 
-                url.includes('youtu.be') ||
-                url.includes('streamtape.com') ||
-                url.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i) ||
-                url.includes('vimeo.com') ||
-                url.includes('dailymotion.com')
-            );
-        }
-
-        function isYouTube(url) {
-            return url && (url.includes('youtube.com') || url.includes('youtu.be'));
-        }
-
-        // Room management with Supabase
         async function createRoom() {
             if (!state.username.trim()) {
                 alert('Please enter your username');
@@ -230,8 +201,7 @@
             };
 
             try {
-                // Insert new room
-                const { data, error } = await supabase
+                const { error } = await supabase
                     .from('rooms')
                     .insert([roomData]);
 
@@ -242,13 +212,12 @@
                 state.viewers = JSON.parse(roomData.viewers);
                 state.videoUrl = roomData.video_url;
                 
-                // Subscribe to real-time updates
                 setupRealtimeSubscription(roomId);
                 
                 state.isLoading = false;
                 render();
                 
-                console.log('Room created successfully:', roomId);
+                console.log('Room created:', roomId);
             } catch (error) {
                 console.error('Error creating room:', error);
                 alert('Error creating room: ' + error.message);
@@ -275,15 +244,7 @@
                     .eq('id', roomId)
                     .single();
 
-                if (error) {
-                    console.error('Supabase error:', error);
-                    alert('Room not found! Please check the room ID. Error: ' + error.message);
-                    state.isLoading = false;
-                    render();
-                    return;
-                }
-
-                if (!data) {
+                if (error || !data) {
                     alert('Room not found! Please check the room ID.');
                     state.isLoading = false;
                     render();
@@ -292,13 +253,11 @@
 
                 state.currentRoom = roomId;
                 
-                // Update viewers
                 const viewers = JSON.parse(data.viewers || '[]');
                 if (!viewers.includes(state.username)) {
                     viewers.push(state.username);
                 }
 
-                // Add join message
                 const messages = JSON.parse(data.messages || '[]');
                 messages.push({
                     sender: 'System',
@@ -307,7 +266,6 @@
                     timestamp: Date.now()
                 });
 
-                // Update room in Supabase
                 const { error: updateError } = await supabase
                     .from('rooms')
                     .update({
@@ -325,13 +283,12 @@
                 state.videoUrl = data.video_url || '';
                 state.videoState = JSON.parse(data.video_state || '{"playing":false,"currentTime":0}');
                 
-                // Subscribe to real-time updates
                 setupRealtimeSubscription(roomId);
                 
                 state.isLoading = false;
                 render();
                 
-                console.log('Joined room successfully:', roomId);
+                console.log('Joined room:', roomId);
             } catch (error) {
                 console.error('Error joining room:', error);
                 alert('Failed to join room: ' + error.message);
@@ -340,7 +297,6 @@
             }
         }
 
-        // Setup real-time subscription
         function setupRealtimeSubscription(roomId) {
             if (state.subscription) {
                 state.subscription.unsubscribe();
@@ -356,15 +312,13 @@
                         filter: `id=eq.${roomId}`
                     }, 
                     (payload) => {
-                        console.log('Real-time update received:', payload);
+                        console.log('Real-time update:', payload);
                         if (payload.new) {
                             updateStateFromSupabase(payload.new);
                         }
                     }
                 )
-                .subscribe((status) => {
-                    console.log('Subscription status:', status);
-                });
+                .subscribe();
         }
 
         function updateStateFromSupabase(data) {
@@ -402,11 +356,6 @@
         async function setVideo() {
             if (!state.videoUrl.trim()) {
                 alert('Please enter a video URL');
-                return;
-            }
-
-            if (!isValidVideoUrl(state.videoUrl)) {
-                alert('Please enter a valid video URL (YouTube, Streamtape, Vimeo, Dailymotion, or direct video file)');
                 return;
             }
 
@@ -467,7 +416,6 @@
             }
         }
 
-        // Video sync
         function setupVideoSync() {
             videoElement = document.getElementById('videoPlayer');
             if (!videoElement || videoElement.tagName !== 'VIDEO') return;
@@ -487,15 +435,13 @@
             };
 
             try {
-                const { error } = await supabase
+                await supabase
                     .from('rooms')
                     .update({
                         video_state: JSON.stringify(videoState),
                         last_updated: Date.now()
                     })
                     .eq('id', state.currentRoom);
-
-                if (error) throw error;
             } catch (error) {
                 console.error('Error updating video state:', error);
             }
@@ -519,16 +465,14 @@
 
         function copyRoomId() {
             navigator.clipboard.writeText(state.currentRoom)
-                .then(() => alert('Room ID copied to clipboard!'))
-                .catch(err => console.error('Failed to copy:', err));
+                .then(() => alert('Room ID copied!'))
+                .catch(() => alert('Room ID: ' + state.currentRoom));
         }
 
         function leaveRoom() {
             if (state.subscription) {
                 state.subscription.unsubscribe();
-                console.log('Unsubscribed from room');
             }
-
             state.isInRoom = false;
             state.currentRoom = null;
             state.videoUrl = '';
@@ -537,13 +481,12 @@
             render();
         }
 
-        // Render functions - ORIGINAL VIDEO PLAYER DESIGN
         function renderLoginScreen() {
             return `
                 <div class="login-screen">
                     <div class="card login-card">
                         <h1>Watch2gether</h1>
-                        <p style="color: #c4b5fd; margin-bottom: 1rem;">Global Sync - Ready for Netherlands! 🇳🇱</p>
+                        <p style="color: #c4b5fd; margin-bottom: 1rem;">Watch videos together in real-time! 🎬</p>
                         
                         ${state.isLoading ? '<div class="loading">⏳ Loading...</div>' : ''}
                         
@@ -570,28 +513,25 @@
 
         function renderMainScreen() {
             const embedUrl = getEmbedUrl(state.videoUrl);
-            const isDirect = isDirectVideo(state.videoUrl);
-            const isYouTubeVideo = isYouTube(state.videoUrl);
-            const isStreamtapeVideo = isStreamtape(state.videoUrl);
+            const videoType = getVideoType(state.videoUrl);
 
-            console.log('Rendering with videoUrl:', state.videoUrl);
+            console.log('Video URL:', state.videoUrl);
             console.log('Embed URL:', embedUrl);
-            console.log('Is Streamtape:', isStreamtapeVideo);
+            console.log('Video type:', videoType);
 
-            // ORIGINAL VIDEO PLAYER DESIGN
             let videoElement = '';
             if (state.videoUrl) {
-                if (isDirect) {
-                    videoElement = `<video id="videoPlayer" controls src="${state.videoUrl}"></video>`;
-                } else if (embedUrl) {
-                    videoElement = `<iframe id="videoPlayer" src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+                if (videoType === 'direct') {
+                    videoElement = `<video id="videoPlayer" controls src="${embedUrl}"></video>`;
+                } else if (videoType === 'youtube' || videoType === 'streamtape' || videoType === 'iframe') {
+                    videoElement = `<iframe id="videoPlayer" src="${embedUrl}" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
                 } else {
                     videoElement = `
                         <div class="video-placeholder">
                             <div>
                                 <p style="font-size: 4rem; margin-bottom: 1rem;">❌</p>
-                                <p>Invalid video URL</p>
-                                <p>Please use YouTube, Streamtape, or direct video links</p>
+                                <p>Unable to load video</p>
+                                <p style="font-size: 0.875rem; margin-top: 0.5rem;">Try a YouTube or Streamtape URL</p>
                             </div>
                         </div>
                     `;
@@ -602,7 +542,7 @@
                         <div>
                             <p style="font-size: 4rem; margin-bottom: 1rem;">▶️</p>
                             <p>No video loaded</p>
-                            <p>Add a YouTube or video URL below</p>
+                            <p style="font-size: 0.875rem; margin-top: 0.5rem;">Add a video URL below</p>
                         </div>
                     </div>
                 `;
@@ -611,60 +551,53 @@
             return `
                 <div class="container">
                     <div class="success">
-                        ✅ Connected to Supabase! Share this room ID: <strong>${state.currentRoom}</strong>
-                        <br><small>Your friend in Netherlands can join this room! 🌍</small>
+                        ✅ Connected! Room ID: <strong>${state.currentRoom}</strong>
+                        <button class="btn-small" onclick="copyRoomId()" style="margin-left: 0.5rem;">Copy</button>
                     </div>
-                    
-                    ${state.isLoading ? '<div class="loading">⏳ Syncing...</div>' : ''}
                     
                     <div class="header">
                         <div>
                             <h2>Watch2gether</h2>
-                            <p>Room: ${state.currentRoom} 
-                                <button class="btn-small" onclick="copyRoomId()">Copy ID</button>
-                            </p>
+                            <p style="font-size: 0.875rem; color: #c4b5fd;">Room: ${state.currentRoom}</p>
                         </div>
                         <div class="flex">
-                            <span>👥 ${state.viewers.length} viewers</span>
-                            <button class="btn-small" style="background: #4f46e5;" onclick="leaveRoom()">Leave</button>
+                            <span>👥 ${state.viewers.length}</span>
+                            <button class="btn-small" style="background: #ef4444;" onclick="leaveRoom()">Leave</button>
                         </div>
                     </div>
                     
                     <div class="grid">
                         <div>
-                            <!-- ORIGINAL VIDEO PLAYER DESIGN -->
                             <div class="card">
                                 <div class="video-container">
                                     ${videoElement}
                                 </div>
-                                ${isDirect ? '<div class="sync-status">🎯 Real-time sync enabled</div>' : 
-                                  isStreamtapeVideo ? '<div class="sync-status">⚠️ Sync limited for embedded videos</div>' :
+                                ${videoType === 'direct' ? '<div class="sync-status">🎯 Real-time sync enabled</div>' : 
                                   '<div class="sync-status">⚠️ Sync limited for embedded videos</div>'}
                             </div>
                             
-                            <!-- ORIGINAL VIDEO INPUT DESIGN -->
-                            <div class="section-card" style="margin-top: 1rem;">
+                            <div class="section-card">
                                 <label>🔗 Add Video URL</label>
                                 <div class="flex">
-                                    <input type="text" id="videoUrl" value="${state.videoUrl}" placeholder="YouTube URL, Streamtape, or direct video link"/>
+                                    <input type="text" id="videoUrl" value="${state.videoUrl}" placeholder="YouTube, Streamtape, or direct video link"/>
                                     <button onclick="setVideo()" class="btn-small" ${state.isLoading ? 'disabled' : ''}>Load</button>
                                 </div>
                                 <p class="info-text">
-                                    Supports: YouTube, Streamtape, MP4, WebM, and other direct video links
+                                    ✅ YouTube | ✅ Streamtape | ✅ Direct MP4/WebM links
                                 </p>
                             </div>
                             
                             <div class="section-card">
-                                <h3>👥 Viewers (${state.viewers.length})</h3>
+                                <h3 style="margin: 0;">👥 Viewers (${state.viewers.length})</h3>
                                 <div class="viewers">
-                                    ${state.viewers.map(viewer => `<span class="viewer-badge">${viewer}</span>`).join('')}
+                                    ${state.viewers.map(v => `<span class="viewer-badge">${v}</span>`).join('')}
                                 </div>
                             </div>
                         </div>
                         
                         <div>
                             <div class="card chat-container">
-                                <h3>💬 Chat</h3>
+                                <h3 style="margin: 0 0 1rem 0;">💬 Chat</h3>
                                 <div class="chat-messages" id="chatMessages">
                                     ${state.messages.map(msg => `
                                         <div class="message">
@@ -680,7 +613,7 @@
                                 </div>
                                 <div class="chat-input">
                                     <input type="text" id="messageInput" value="${state.messageInput}" placeholder="Type a message..."/>
-                                    <button onclick="sendMessage()" ${state.isLoading ? 'disabled' : ''}>Send</button>
+                                    <button onclick="sendMessage()">Send</button>
                                 </div>
                             </div>
                         </div>
@@ -701,7 +634,7 @@
                     usernameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') createRoom(); });
                 }
                 if (roomIdInput) {
-                    roomIdInput.addEventListener('input', (e) => state.roomId = e.target.value);
+                    roomIdInput.addEventListener('input', (e) => state.roomId = e.target.value.toUpperCase());
                     roomIdInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') joinRoom(); });
                 }
             } else {
@@ -716,12 +649,11 @@
                     messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
                 }
                 setTimeout(setupVideoSync, 100);
-                const chatMessages = document.getElementById('chatMessages');
-                if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+                const chatEl = document.getElementById('chatMessages');
+                if (chatEl) chatEl.scrollTop = chatEl.scrollHeight;
             }
         }
 
-        // Initialize
         render();
         window.createRoom = createRoom;
         window.joinRoom = joinRoom;
@@ -729,9 +661,6 @@
         window.sendMessage = sendMessage;
         window.copyRoomId = copyRoomId;
         window.leaveRoom = leaveRoom;
-
-        // Test connection on load
-        console.log('Watch2gether loaded with Supabase URL:', SUPABASE_URL);
     </script>
 </body>
 </html>
